@@ -26,6 +26,7 @@ trendlens/
 ├── generate_metadata.py       # Pipeline script — Steps 1–4 (run first)
 ├── generate_embeddings.py     # Pipeline script — CLIP embeddings (run second)
 ├── generate_umap.py           # Pipeline script — UMAP reduction (run third)
+├── generate_clusters.py       # Pipeline script — HDBSCAN clustering (run fourth)
 ├── script.py                  # One-off utility: drops truncated images & verifies alignment
 ├── requirements.txt           # Python dependencies
 ├── train_img_filepath.txt     # Flickr-style manifest: train/<user_id>/<photo_id>.jpg
@@ -40,7 +41,12 @@ trendlens/
     ├── metadata_checkpoint.csv    # Metadata slice aligned with the checkpoint
     ├── umap_2d.npy                # 2-D UMAP projection — float32 (N × 2)
     ├── umap_10d.npy               # 10-D UMAP projection — float32 (N × 10)
-    └── umap_scatter.png           # Sanity scatter plot coloured by category
+    ├── umap_scatter.png           # Sanity scatter plot coloured by category
+    ├── metadata_clustered.csv     # metadata.csv + ['cluster', 'cluster_prob'] columns
+    ├── cluster_summary.csv        # Per-cluster size / engagement / category stats
+    ├── cluster_representatives.json  # Top-probability image per cluster
+    ├── cluster_scatter.png        # umap_2d scatter coloured by cluster label
+    └── cluster_representatives.png   # Image grid of one representative per cluster
 ```
 
 > **Note:** `failed_images.txt` and `nn_preview.png` are created only if there are
@@ -62,6 +68,9 @@ python generate_embeddings.py
 
 # 4. Reduce embeddings with UMAP — ~10–20 min on CPU
 python generate_umap.py
+
+# 5. HDBSCAN clustering — ~5–10 min on CPU
+python generate_clusters.py
 ```
 
 `script.py` is a **maintenance utility** — run it manually only when correcting dataset
@@ -81,23 +90,23 @@ Sets up all global constants and builds per-user behavioural profiles from the f
 
 15 categories with per-category viral-potential multipliers (`CAT_LIKES_MU`):
 
-| Category | Likes Multiplier |
-|---|---|
-| food | 3.2 |
-| fashion | 3.0 |
-| portrait | 2.8 |
-| travel | 2.7 |
-| events | 2.5 |
-| animals | 2.4 |
-| nightlife | 2.3 |
-| family | 2.2 |
-| sports | 2.0 |
-| nature | 1.9 |
-| architecture | 1.8 |
-| street | 1.7 |
-| art | 1.6 |
-| abstract | 1.4 |
-| technology | 1.3 |
+| Category     | Likes Multiplier |
+| ------------ | ---------------- |
+| food         | 3.2              |
+| fashion      | 3.0              |
+| portrait     | 2.8              |
+| travel       | 2.7              |
+| events       | 2.5              |
+| animals      | 2.4              |
+| nightlife    | 2.3              |
+| family       | 2.2              |
+| sports       | 2.0              |
+| nature       | 1.9              |
+| architecture | 1.8              |
+| street       | 1.7              |
+| art          | 1.6              |
+| abstract     | 1.4              |
+| technology   | 1.3              |
 
 Each category has a curated hashtag pool (`CATEGORY_TAGS`) plus a shared generic-tag pool.
 
@@ -110,11 +119,11 @@ Each category has a curated hashtag pool (`CATEGORY_TAGS`) plus a shared generic
 
 Keyed by `user_id` — built once, reused for all posts by that user:
 
-| Field | Distribution | Notes |
-|---|---|---|
-| `preferred_cat` | Uniform random from 15 categories | 70 % of that user's posts use this |
-| `home_city` | Uniform random from geo pool | Anchor for location generation |
-| `likes_mult` | LogNormal(0, 0.5) clipped [0.3, 6.0] | Audience size / influence proxy |
+| Field            | Distribution                         | Notes                                       |
+| ---------------- | ------------------------------------ | ------------------------------------------- |
+| `preferred_cat`  | Uniform random from 15 categories    | 70 % of that user's posts use this          |
+| `home_city`      | Uniform random from geo pool         | Anchor for location generation              |
+| `likes_mult`     | LogNormal(0, 0.5) clipped [0.3, 6.0] | Audience size / influence proxy             |
 | `follower_count` | LogNormal(6.5, 1.8) clipped [10, 5M] | Power-law; most small, few mega-influencers |
 
 #### 1d. Timestamp Generation
@@ -129,16 +138,16 @@ Keyed by `user_id` — built once, reused for all posts by that user:
 Generates a realistic engagement record for every entry in the filepath manifest
 (305 613 total, including paths for missing files on disk).
 
-| Signal | Method |
-|---|---|
-| `likes` | LogNormal, modulated by category multiplier × user `likes_mult` |
-| `comments` | Beta(1.5, 6.0) fraction × `likes` × 0.25 |
-| `views` | Uniform(10×, 120×) `likes` |
-| `reposts` | Beta(1.2, 18.0) fraction × `likes` × 0.08 — heavy right-skew |
-| `saves` | Beta(2.0, 12.0) fraction × `likes` × 0.15 |
-| `reach` | max(views, views × Uniform(0.6, 1.1)) |
-| `engagement_rate` | (likes + comments + reposts) / reach × 100 |
-| `is_viral` | True if engagement_rate > 3% **or** reposts > 50 |
+| Signal            | Method                                                          |
+| ----------------- | --------------------------------------------------------------- |
+| `likes`           | LogNormal, modulated by category multiplier × user `likes_mult` |
+| `comments`        | Beta(1.5, 6.0) fraction × `likes` × 0.25                        |
+| `views`           | Uniform(10×, 120×) `likes`                                      |
+| `reposts`         | Beta(1.2, 18.0) fraction × `likes` × 0.08 — heavy right-skew    |
+| `saves`           | Beta(2.0, 12.0) fraction × `likes` × 0.15                       |
+| `reach`           | max(views, views × Uniform(0.6, 1.1))                           |
+| `engagement_rate` | (likes + comments + reposts) / reach × 100                      |
+| `is_viral`        | True if engagement_rate > 3% **or** reposts > 50                |
 
 ---
 
@@ -168,23 +177,23 @@ Sampled from a **LogNormal(μ, σ=0.4)** centred on the computed mean, capped to
 
 #### Per-Category Base Durations (`CAT_BASE_DAYS`)
 
-| Category | Base Days |
-|---|---|
-| events | 3 |
-| sports | 5 |
-| nightlife | 7 |
-| animals | 7 |
-| street | 10 |
-| portrait | 10 |
-| food | 14 |
-| family | 14 |
-| nature | 14 |
-| travel | 21 |
-| architecture | 21 |
-| abstract | 21 |
-| art | 28 |
-| fashion | 30 |
-| technology | 45 |
+| Category     | Base Days |
+| ------------ | --------- |
+| events       | 3         |
+| sports       | 5         |
+| nightlife    | 7         |
+| animals      | 7         |
+| street       | 10        |
+| portrait     | 10        |
+| food         | 14        |
+| family       | 14        |
+| nature       | 14        |
+| travel       | 21        |
+| architecture | 21        |
+| abstract     | 21        |
+| art          | 28        |
+| fashion      | 30        |
+| technology   | 45        |
 
 `trend_active_until` = `timestamp` + `trend_duration_days` (ISO-8601 UTC string).
 
@@ -196,12 +205,12 @@ Final CSV saved to `trendlens_outputs/metadata.csv`.
 
 Run after `generate_metadata.py`. Produces `embeddings.npy`.
 
-| Setting | Value |
-|---|---|
-| Model | `openai/clip-vit-base-patch32` |
-| Batch size | 32 images |
-| Checkpoint frequency | Every 200 batches |
-| Device | CUDA (auto-detected) or CPU |
+| Setting              | Value                          |
+| -------------------- | ------------------------------ |
+| Model                | `openai/clip-vit-base-patch32` |
+| Batch size           | 32 images                      |
+| Checkpoint frequency | Every 200 batches              |
+| Device               | CUDA (auto-detected) or CPU    |
 
 **Embedding path:**
 `vision_model → pooler_output → visual_projection → L2-normalise → float32`
@@ -210,6 +219,7 @@ Run after `generate_metadata.py`. Produces `embeddings.npy`.
 the script automatically resumes from where it left off.
 
 **Sanity assertions (run after completion):**
+
 - `embs.ndim == 2`
 - `embs.shape[1] == 512`
 - `embs.dtype == float32`
@@ -226,10 +236,10 @@ distinct purposes: interactive scatter-plot visualisation and density-based clus
 
 ### UMAP Configuration
 
-| Run | `n_components` | `n_neighbors` | `min_dist` | `metric` | `random_state` | Purpose |
-|---|---|---|---|---|---|---|
-| `umap_2d`  | 2  | 30 | 0.1 | cosine | 42 | Scatter-plot visualisation — slight spread between points improves readability |
-| `umap_10d` | 10 | 30 | 0.0 | cosine | 42 | HDBSCAN input — `min_dist=0.0` tightens local clusters, preserving density structure |
+| Run        | `n_components` | `n_neighbors` | `min_dist` | `metric` | `random_state` | Purpose                                                                              |
+| ---------- | -------------- | ------------- | ---------- | -------- | -------------- | ------------------------------------------------------------------------------------ |
+| `umap_2d`  | 2              | 30            | 0.1        | cosine   | 42             | Scatter-plot visualisation — slight spread between points improves readability       |
+| `umap_10d` | 10             | 30            | 0.0        | cosine   | 42             | HDBSCAN input — `min_dist=0.0` tightens local clusters, preserving density structure |
 
 **Why cosine metric?** The CLIP embeddings are L2-normalised (unit vectors), so cosine
 distance is equivalent to Euclidean distance and captures semantic orientation, not magnitude.
@@ -242,10 +252,10 @@ a non-zero `min_dist` artificially spreads points and can break cluster cores.
 
 ### Output Files
 
-| File | Shape | dtype | Description |
-|---|---|---|---|
-| `umap_2d.npy`      | N × 2  | float32 | 2-D projection for scatter-plot visualisation |
-| `umap_10d.npy`     | N × 10 | float32 | 10-D projection as HDBSCAN clustering input |
+| File               | Shape  | dtype   | Description                                                                |
+| ------------------ | ------ | ------- | -------------------------------------------------------------------------- |
+| `umap_2d.npy`      | N × 2  | float32 | 2-D projection for scatter-plot visualisation                              |
+| `umap_10d.npy`     | N × 10 | float32 | 10-D projection as HDBSCAN clustering input                                |
 | `umap_scatter.png` | —      | PNG     | Sanity scatter plot coloured by the 15 content categories (tab20 colormap) |
 
 ### Sanity Checks (run automatically)
@@ -256,7 +266,79 @@ a non-zero `min_dist` artificially spreads points and can break cluster cores.
 
 ---
 
-## 7. Utility: `script.py`
+## 7. Pipeline: `generate_clusters.py` ✅ COMPLETED
+
+Run **after** `generate_umap.py`. Performs HDBSCAN clustering on the 10-D UMAP embedding
+to discover visually coherent trend groups.
+
+### Final Configuration
+
+| Parameter                  | Value       | Reason                                                                 |
+| -------------------------- | ----------- | ---------------------------------------------------------------------- |
+| `MIN_CLUSTER_SIZE`         | **512**     | Matched to CLIP embedding dimension; chosen via sweep (see below)      |
+| `MIN_SAMPLES`              | 10          | Conservative noise threshold — keeps cluster cores tight               |
+| `metric`                   | `euclidean` | UMAP output is Euclidean by construction even though input used cosine |
+| `cluster_selection_method` | `eom`       | Excess of Mass — better for variable-density clusters                  |
+| `random_state`             | 42          | Consistent with rest of pipeline                                       |
+
+### Final Results
+
+| Metric                        | Value        |
+| ----------------------------- | ------------ |
+| Clusters discovered           | **~105**     |
+| Noise points                  | **34.2%**    |
+| Avg membership probability    | **> 0.85**   |
+| Silhouette score (5 K sample) | **0.576** ✅ |
+
+### `min_cluster_size` Tuning Sweep
+
+| `min_cluster_size` | Clusters | Noise | Decision                                      |
+| ------------------ | -------- | ----- | --------------------------------------------- |
+| 100                | 457      | 39.7% | Too many — over-segmented                     |
+| 300                | 170      | 36.9% | Still too many                                |
+| 500                | 107      | 34.1% | Good range                                    |
+| 512                | ~105     | 34.2% | ✅ **FINAL** — clean number matching CLIP dim |
+| 650                | 87       | 36.4% | Noise went UP — rejected                      |
+
+### Issue: Noise Increased When `min_cluster_size` Was Raised to 650
+
+**Problem:** Raising `min_cluster_size` from 500 → 650 caused noise to jump from 34.1% → 36.4%
+even though cluster count dropped from 107 → 87.
+
+**Reason:** When `min_cluster_size` increases, HDBSCAN dissolves clusters that no longer meet
+the threshold. Those points do **not** merge into larger clusters — they are ejected as noise
+(label `-1`). This is expected HDBSCAN behaviour, not a bug.
+
+**Solution:** Recognised this as a natural noise floor for this dataset (~34%). Locked in
+`MIN_CLUSTER_SIZE=512` as the sweet spot before noise started rising again.
+
+### Why 34% Noise Is Acceptable
+
+A 15-category social media dataset naturally contains many one-off images that don't belong
+to any recurring visual trend. 34% noise mirrors real platform dynamics where most posts are
+unique. The 66% of images that ARE clustered (~45 K images) form 105 clean, well-separated
+visual trends confirmed by silhouette score 0.576.
+
+### Why Low Category Purity Is Expected
+
+CLIP clusters by **visual appearance**, not semantic label. A moody low-light photo from
+"nightlife", "art", and "architecture" may be visually identical. Cross-category clusters
+represent genuine cross-domain visual trends — which is exactly what TrendLens is designed
+to find.
+
+### Output Files
+
+| File                           | Description                                                    |
+| ------------------------------ | -------------------------------------------------------------- |
+| `metadata_clustered.csv`       | Full metadata + `cluster` + `cluster_prob` — feeds Step 5      |
+| `cluster_summary.csv`          | Per-cluster: size, dominant category, purity, engagement stats |
+| `cluster_representatives.json` | Highest-probability image path per cluster                     |
+| `cluster_scatter.png`          | 2-D UMAP scatter coloured by cluster label                     |
+| `cluster_representatives.png`  | Image grid of one representative per cluster                   |
+
+---
+
+## 8. Utility: `script.py`
 
 One-off maintenance script. Drops a known-bad image (`28552@N91/205379.jpg` — truncated/corrupt)
 from `metadata.csv`, resets the index, and asserts that `embeddings.npy` row count still matches.
@@ -266,37 +348,37 @@ bad image post-embedding.
 
 ---
 
-## 8. Metadata Schema (`metadata.csv`)
+## 9. Metadata Schema (`metadata.csv`)
 
 **69 226 rows × 25 columns** after all pipeline steps. All columns present for every valid image.
 
-| Column | Type | Description |
-|---|---|---|
-| `post_id` | str | `{user_id}_{photo_id}` — unique post key |
-| `user_id` | str | Flickr-style user identifier (e.g. `59@N75`) |
-| `photo_id` | str | Numeric photo stem (e.g. `775`) |
-| `photo_id_int` | int | Integer version of photo_id for ordering/mapping |
-| `image_path` | str | Relative path: `train/<user_id>/<photo_id>.jpg` |
-| `timestamp` | str | ISO-8601 UTC string (2010–2019) |
-| **`likes`** | int | Synthetic like count (lognormal, category + user modulated) |
-| **`comments`** | int | Synthetic comment count (beta fraction of likes × 0.25) |
-| **`reposts`** | int | Shares/reposts (beta-skewed fraction of likes × 0.08) |
-| **`saves`** | int | Bookmarks/saves (beta fraction of likes × 0.15; high-intent) |
-| **`views`** | int | Estimated impressions (10–120× likes) |
-| **`reach`** | int | Unique accounts reached (≥ views; viral reposts can push reach > views) |
-| **`follower_count`** | int | Creator follower count (power-law; per-user, stable) |
-| **`engagement_rate`** | float | `(likes + comments + reposts) / reach × 100` — % |
-| **`is_viral`** | bool | `True` if `engagement_rate > 3%` OR `reposts > 50` |
-| `category` | str | One of 15 content categories |
-| `tags` | str (JSON) | List of 2–8 hashtags (category-specific + generic) |
-| `groups` | str (JSON) | List of 0–4 Flickr group names |
-| `geo_lat` | float / NaN | Latitude (±0.15° jitter; NaN if no location) |
-| `geo_lon` | float / NaN | Longitude (±0.15° jitter; NaN if no location) |
-| `geo_city` | str / NaN | City name (NaN if no location) |
-| `user_total_posts` | int | Total posts by this user in the full manifest |
-| `is_synthetic` | bool | Always `True` — marks synthetic origin |
-| **`trend_duration_days`** | float | Modelled trend lifespan in days (1–180, lognormal) |
-| **`trend_active_until`** | str | ISO-8601 UTC — `timestamp + trend_duration_days` |
+| Column                    | Type        | Description                                                             |
+| ------------------------- | ----------- | ----------------------------------------------------------------------- |
+| `post_id`                 | str         | `{user_id}_{photo_id}` — unique post key                                |
+| `user_id`                 | str         | Flickr-style user identifier (e.g. `59@N75`)                            |
+| `photo_id`                | str         | Numeric photo stem (e.g. `775`)                                         |
+| `photo_id_int`            | int         | Integer version of photo_id for ordering/mapping                        |
+| `image_path`              | str         | Relative path: `train/<user_id>/<photo_id>.jpg`                         |
+| `timestamp`               | str         | ISO-8601 UTC string (2010–2019)                                         |
+| **`likes`**               | int         | Synthetic like count (lognormal, category + user modulated)             |
+| **`comments`**            | int         | Synthetic comment count (beta fraction of likes × 0.25)                 |
+| **`reposts`**             | int         | Shares/reposts (beta-skewed fraction of likes × 0.08)                   |
+| **`saves`**               | int         | Bookmarks/saves (beta fraction of likes × 0.15; high-intent)            |
+| **`views`**               | int         | Estimated impressions (10–120× likes)                                   |
+| **`reach`**               | int         | Unique accounts reached (≥ views; viral reposts can push reach > views) |
+| **`follower_count`**      | int         | Creator follower count (power-law; per-user, stable)                    |
+| **`engagement_rate`**     | float       | `(likes + comments + reposts) / reach × 100` — %                        |
+| **`is_viral`**            | bool        | `True` if `engagement_rate > 3%` OR `reposts > 50`                      |
+| `category`                | str         | One of 15 content categories                                            |
+| `tags`                    | str (JSON)  | List of 2–8 hashtags (category-specific + generic)                      |
+| `groups`                  | str (JSON)  | List of 0–4 Flickr group names                                          |
+| `geo_lat`                 | float / NaN | Latitude (±0.15° jitter; NaN if no location)                            |
+| `geo_lon`                 | float / NaN | Longitude (±0.15° jitter; NaN if no location)                           |
+| `geo_city`                | str / NaN   | City name (NaN if no location)                                          |
+| `user_total_posts`        | int         | Total posts by this user in the full manifest                           |
+| `is_synthetic`            | bool        | Always `True` — marks synthetic origin                                  |
+| **`trend_duration_days`** | float       | Modelled trend lifespan in days (1–180, lognormal)                      |
+| **`trend_active_until`**  | str         | ISO-8601 UTC — `timestamp + trend_duration_days`                        |
 
 ### Engagement Signal Design Notes
 
@@ -316,21 +398,21 @@ The engagement signals are deliberately **correlated** to reflect real platform 
 
 ---
 
-## 9. Embeddings Schema (`embeddings.npy`)
+## 10. Embeddings Schema (`embeddings.npy`)
 
-| Property | Value |
-|---|---|
-| Shape | `(69226, 512)` |
-| dtype | `float32` |
-| Normalisation | L2-normalised (unit vectors) |
-| Similarity metric | Dot product = cosine similarity |
-| Model | CLIP ViT-B/32 visual encoder + visual projection |
+| Property          | Value                                            |
+| ----------------- | ------------------------------------------------ |
+| Shape             | `(69226, 512)`                                   |
+| dtype             | `float32`                                        |
+| Normalisation     | L2-normalised (unit vectors)                     |
+| Similarity metric | Dot product = cosine similarity                  |
+| Model             | CLIP ViT-B/32 visual encoder + visual projection |
 
 Row `i` of `embeddings.npy` corresponds to row `i` of `metadata.csv`.
 
 ---
 
-## 10. Key Design Decisions
+## 11. Key Design Decisions
 
 1. **Why CLIP?** CLIP's joint image–text embedding space means the 512-d vectors capture semantic
    visual content (not just colour histograms), enabling meaningful clustering and cross-modal search.
@@ -355,9 +437,17 @@ Row `i` of `embeddings.npy` corresponds to row `i` of `metadata.csv`.
 7. **Why two separate scripts instead of a notebook?** Scripts are easier to run on remote/headless
    machines, composable in CI/CD pipelines, and simpler to checkpoint and resume reliably.
 
+8. **Why `MIN_CLUSTER_SIZE=512` for HDBSCAN?** Chosen via systematic sweep (100 → 650). 512 matches
+   the CLIP embedding dimension (clean, justifiable), lands in the target cluster range (~105 clusters),
+   and sits just before the noise plateau where further increases dissolve valid clusters.
+
+9. **Why `metric="euclidean"` for HDBSCAN despite cosine in UMAP?** UMAP's output space is Euclidean
+   by construction regardless of the input metric. Cosine is applied during UMAP reduction; the
+   resulting 10-D coordinates are then clustered with Euclidean distance, which is correct.
+
 ---
 
-## 11. Dependencies (`requirements.txt`)
+## 12. Dependencies (`requirements.txt`)
 
 ```
 torch>=2.0.0
@@ -370,18 +460,22 @@ matplotlib>=3.7.0
 tqdm>=4.65.0
 nbformat>=5.7.0
 umap-learn>=0.5.0
+hdbscan>=0.8.29
+scikit-learn>=1.3.0
 ```
 
 Install with:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ---
 
-## 12. Reproducibility
+## 13. Reproducibility
 
 All random operations use a fixed seed of **42**:
+
 - `random.seed(42)` — Python stdlib (used for per-user profile sampling)
 - `np.random.seed(42)` — legacy NumPy (used in taxonomy helpers)
 - `np.random.default_rng(42)` — new NumPy Generator (used for engagement signal generation)
@@ -390,18 +484,18 @@ Re-running both scripts from scratch with the same image files will produce **id
 
 ---
 
-## 13. Planned / Future Steps
+## 14. Planned / Future Steps
 
-| Step | Status | Description |
-|---|---|---|
-| HDBSCAN Clustering | ✅ input ready (`umap_10d.npy`) | Run HDBSCAN on 10-D UMAP embedding to identify visual trend clusters |
-| Trend Scoring | pending | Aggregate `engagement_rate` and `is_viral` within clusters over time to rank rising trends |
-| Temporal Analysis | pending | Use `timestamp` + `trend_active_until` to track cluster popularity trajectory (2010–2019) |
-| Geo Trending | pending | Filter by `geo_city` to surface location-specific visual trends |
-| Follower-Normalised Ranking | pending | Use `follower_count` to surface high-engagement micro-influencer content |
-| Dashboard | pending | Streamlit / Gradio UI for visual trend browsing and NN search |
-| Production Swap-In | pending | Replace `is_synthetic=True` rows with real Flickr API engagement data |
+| Step                        | Status                                       | Description                                                                                |
+| --------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| HDBSCAN Clustering          | ✅ **DONE** — 105 clusters, silhouette 0.576 | `generate_clusters.py` with `MIN_CLUSTER_SIZE=512`                                         |
+| Trend Scoring               | pending                                      | Aggregate `engagement_rate` and `is_viral` within clusters over time to rank rising trends |
+| Temporal Analysis           | pending                                      | Use `timestamp` + `trend_active_until` to track cluster popularity trajectory (2010–2019)  |
+| Geo Trending                | pending                                      | Filter by `geo_city` to surface location-specific visual trends                            |
+| Follower-Normalised Ranking | pending                                      | Use `follower_count` to surface high-engagement micro-influencer content                   |
+| Dashboard                   | pending                                      | Streamlit / Gradio UI for visual trend browsing and NN search                              |
+| Production Swap-In          | pending                                      | Replace `is_synthetic=True` rows with real Flickr API engagement data                      |
 
 ---
 
-*Last updated: 2026-04-29 · TrendLens v1.2*
+_Last updated: 2026-07-28 · TrendLens v1.3_
