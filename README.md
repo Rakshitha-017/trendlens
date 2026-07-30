@@ -9,6 +9,7 @@ python generate_metadata.py        # Generate metadata for each post
 python generate_embeddings.py      # Generate CLIP embeddings for images + metadata
 python generate_umap.py            # Perform dimensionality reduction (UMAP)
 python convert_npy_to_csv.py       # Convert .npy files to .csv for readability
+python generate_clusters.py       # Perform HDBSCAN and generate clusters
 ```
 
 ## Output
