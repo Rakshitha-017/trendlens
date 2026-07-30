@@ -27,5 +27,10 @@ trendlens_outputs/
 ├── umap_10d.npy
 ├── umap_2d.csv
 ├── umap_10d.csv
-└── umap_scatter.png
+├── umap_scatter.png
+├── metadata_clustered.csv
+├── cluster_summary.csv
+├── cluster_representatives.json
+├── cluster_scatter.png
+└── cluster_representatives.png
 ```
