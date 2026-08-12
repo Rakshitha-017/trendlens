@@ -22,7 +22,9 @@ import matplotlib.patches as mpatches
 from umap import UMAP
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-OUTPUTS_DIR     = os.path.join(os.path.dirname(__file__), "trendlens_outputs")
+# Anchored to this script's own directory so behavior doesn't depend on the
+# caller's current working directory.
+OUTPUTS_DIR     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trendlens_outputs")
 EMBEDDINGS_PATH = os.path.join(OUTPUTS_DIR, "embeddings.npy")
 METADATA_PATH   = os.path.join(OUTPUTS_DIR, "metadata.csv")
 OUT_2D_PATH     = os.path.join(OUTPUTS_DIR, "umap_2d.npy")

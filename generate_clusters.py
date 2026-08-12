@@ -20,6 +20,7 @@ Outputs (trendlens_outputs/):
 """
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -31,7 +32,10 @@ from PIL import Image
 # ----------------------------------------------------------------------
 # Config
 # ----------------------------------------------------------------------
-OUTPUT_DIR = Path("trendlens_outputs")
+# Anchor to this script's own directory (not the caller's cwd) so it behaves
+# the same regardless of where it's invoked from.
+BASE_DIR   = Path(__file__).parent
+OUTPUT_DIR = BASE_DIR / "trendlens_outputs"
 
 UMAP_10D_PATH = OUTPUT_DIR / "umap_10d.npy"
 UMAP_2D_PATH = OUTPUT_DIR / "umap_2d.npy"
@@ -148,7 +152,9 @@ if n > 0:
 
     for ax, (c, info) in zip(axes, representatives.items()):
         try:
-            img = Image.open(info["image_path"])
+            img_path = info["image_path"]
+            abs_img_path = img_path if os.path.isabs(img_path) else str(BASE_DIR / img_path)
+            img = Image.open(abs_img_path)
             ax.imshow(img)
         except Exception:
             ax.text(0.5, 0.5, "missing", ha="center")

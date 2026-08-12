@@ -15,11 +15,15 @@ Outputs (all in trendlens_outputs/)
   smpd_metadata.json   — full synthetic engagement records (305 K rows)
   metadata.csv         — valid-images-only enriched DataFrame (69 K rows)
 
-CHANGE FROM v1:
-  Timestamps are now randomly distributed across 2010-2019 per user,
-  instead of linearly mapped from photo_id. This ensures clusters have
-  posts spread across the full decade, enabling meaningful temporal
-  trend tracking and peak detection.
+TEMPORAL DESIGN v2:
+  Timestamps are now assigned using category-biased Gaussian distributions
+  so that different content categories naturally peak at different eras:
+    - technology / fashion / sports → 2016-2019  (Rising clusters)
+    - travel / food / animals       → 2013-2016  (Stable clusters)
+    - architecture / nature / street → 2010-2013 (Declining clusters)
+    - Others (portrait, family, etc.) → mixed     (Mixed)
+  This produces meaningful temporal diversity enabling genuine
+  Rising / Stable / Declining lifecycle classification.
 """
 
 import os, json, random, warnings, math
@@ -104,35 +108,58 @@ FLICKR_GROUPS = [
     "Documentary Photography",
 ]
 
-# Timestamp config
+# ── CATEGORY TEMPORAL BIAS — the key change for lifecycle diversity ─────────────
+# Each category gets a (mean_year, std_years) Gaussian from which timestamps are
+# sampled. Categories with high mean_year → more recent posts → Rising lifecycle.
+# Clipped to the epoch 2010–2019.
 EPOCH_START = datetime(2010, 1, 1)
 EPOCH_END   = datetime(2019, 12, 31)
 EPOCH_SPAN  = (EPOCH_END - EPOCH_START).total_seconds()
 
+CATEGORY_TEMPORAL_BIAS = {
+    # Rising era — heavy posts in 2016-2019
+    "technology": (2017.5, 1.2),
+    "fashion":    (2017.0, 1.3),
+    "sports":     (2016.5, 1.4),
+    # Stable era — posts spread around 2013-2016
+    "food":       (2015.0, 1.5),
+    "travel":     (2015.5, 1.5),
+    "animals":    (2014.5, 1.6),
+    # Declining era — heavy posts in 2010-2013
+    "architecture": (2011.5, 1.2),
+    "nature":       (2011.0, 1.3),
+    "street":       (2012.0, 1.4),
+    # Mixed — spread across the decade
+    "portrait":  (2014.0, 2.5),
+    "family":    (2013.5, 2.5),
+    "events":    (2014.5, 2.3),
+    "art":       (2013.0, 2.5),
+    "abstract":  (2015.0, 2.3),
+    "nightlife": (2013.5, 2.4),
+}
 
-# ── CHANGED FUNCTION ──────────────────────────────────────────────────────────
-def generate_timestamp(rng_state):
+
+def generate_timestamp(rng_state, category: str) -> str:
     """
-    Randomly assign a timestamp anywhere in 2010-2019.
+    Sample a timestamp for a post using category-biased temporal distribution.
 
-    WHY CHANGED:
-        The old approach mapped photo_id linearly to timestamps, causing
-        all posts to cluster in early years (because low photo IDs dominate).
-        This made every cluster peak in 2010-2013, making temporal trend
-        tracking meaningless.
+    Each category has a (mean_year, std) Gaussian. This creates era-specific
+    activity patterns that produce genuine Rising / Stable / Declining clusters
+    after HDBSCAN groups posts by visual similarity.
 
-        Random assignment spreads posts evenly across the decade so
-        different clusters naturally peak at different times, enabling
-        genuine Rising / Stable / Declining classification.
+    The timestamp is clipped to [2010-01-01, 2019-12-31].
     """
-    random_seconds = rng_state.uniform(0, EPOCH_SPAN)
-    ts = EPOCH_START + timedelta(seconds=float(random_seconds))
-    ts = max(EPOCH_START, min(EPOCH_END, ts))
+    mean_yr, std_yr = CATEGORY_TEMPORAL_BIAS.get(category, (2014.5, 2.5))
+    sampled_year_float = float(rng_state.normal(mean_yr, std_yr))
+    # Convert fractional year to datetime
+    year_frac = sampled_year_float - 2010.0  # offset from epoch start
+    seconds   = year_frac * 365.25 * 24 * 3600
+    seconds   = max(0.0, min(EPOCH_SPAN, seconds))
+    ts = EPOCH_START + timedelta(seconds=seconds)
     return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
-# ── END CHANGED FUNCTION ──────────────────────────────────────────────────────
 
 
-print("✓ Taxonomy and helpers defined.")
+print("✓ Taxonomy, helpers and category temporal bias defined.")
 
 
 # ── Parse train_img_filepath.txt ───────────────────────────────────────────────
@@ -191,12 +218,11 @@ for _, row in df_raw.iterrows():
 
     post_id = f"{uid}_{pid}"
 
-    # ── CHANGED: use random timestamp instead of photo_id linear mapping ──
-    ts = generate_timestamp(_rng)
-    # ── END CHANGE ──
-
     category = prof["preferred_cat"] if _rng.random() < 0.70 \
                else CATEGORIES[int(_rng.integers(len(CATEGORIES)))]
+
+    # ── Category-biased timestamp ──────────────────────────────────────────────
+    ts = generate_timestamp(_rng, category)
 
     # Likes
     cat_mu  = CAT_LIKES_MU.get(category, 1.5)
@@ -406,11 +432,13 @@ summary = (
 )
 print(summary.to_string())
 print()
-print("  Timestamp distribution (sanity check):")
+print("  Timestamp distribution by category (mean year):")
 ts_parsed = pd.to_datetime(df_final["timestamp"])
-print(f"  Earliest : {ts_parsed.min()}")
-print(f"  Latest   : {ts_parsed.max()}")
-print(f"  Per year :")
+cat_year  = df_final.copy()
+cat_year["year"] = ts_parsed.dt.year
+print(cat_year.groupby("category")["year"].mean().round(2).sort_values().to_string())
+print()
+print("  Overall timestamp distribution (per year):")
 print(ts_parsed.dt.year.value_counts().sort_index().to_string())
 print()
 print("  Sample rows:")
