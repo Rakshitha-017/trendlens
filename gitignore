@@ -1,5 +1,22 @@
+# Training data / datasets
 train/
 *.npy
 *.csv
 *.json
 *.zip
+
+# Python virtual environment
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Environment variables
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
