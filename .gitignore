@@ -2,3 +2,4 @@ train/
 *.npy
 *.csv
 *.json
+venv/
