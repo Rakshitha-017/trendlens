@@ -117,6 +117,9 @@ python -m src.rag "write a c program to print hello world"
 python -m src.rag "what is trending in food right now"
 ```
 
+> Answers focus on actionable visual advice only. Cluster IDs, engagement
+> scores, lifecycle labels, and pipeline internals are intentionally hidden.
+
 ---
 
 ## Backend API (Python stdlib, port 8000)
@@ -164,11 +167,9 @@ npx tsx server.ts
 
 > **How the RAG endpoint works:** your query → Express proxy → Python
 > `/api/rag-query` → `src/rag.py` runs the two-stage scope gate (keyword
-> patterns then ~150 in-scope visual anchors) → if in scope: CLIP text embed →
-> FAISS top-k → honest markdown answer from measured cluster metadata.
-> Answers are rule-based by default; set `TRENDLENS_LLM_PROVIDER` to have the
-> LLM **writing layer** rewrite that same evidence into fluent prose (it is
-> never a knowledge source and falls back automatically on any failure).
+> patterns then ~150 in-scope visual anchors) → if in scope: semantic text
+> retrieval → LLM answer grounded in retrieved context (optional).
+> Answers focus on actionable visual advice — no cluster IDs or metrics.
 > A "what's trending right now" query is answered from `src.live` REAL themes
 > when `live_trends.json` exists (clearly labelled REAL vs synthetic demo).
 > Live-trend answers are always rule-based — the LLM is never applied to them,
@@ -194,8 +195,36 @@ npx tsx server.ts
 
 ```bash
 source venv/bin/activate
-python -m pytest tests/ -q      # 162 tests covering every phase + API + LLM + live
+python -m pytest tests/ -q      # 154 tests covering every phase + API + LLM + live
 ```
+
+---
+
+## Deployment (Free)
+
+TrendLens can be deployed for free on [Render](https://render.com):
+
+1. Push your code to GitHub
+2. Go to Render → New → Blueprint
+3. Select your repository
+4. Render auto-detects `render.yaml` and creates both services
+
+**Auto-deploy:** Every push to `development` or `main` branch triggers a rebuild.
+
+```bash
+# Push to GitHub
+git add .
+git commit -m "Your changes"
+git push
+
+# Render auto-deploys
+```
+
+**Environment variables on Render:**
+- `TRENDLENS_LLM_API_KEY` — your Gemini API key (if using LLM)
+- `TRENDLENS_LIVE_SOURCE` — `auto` or `wikimedia`
+
+> Render free tier spins down after 15 min inactivity (cold start ~30s).
 
 ---
 
@@ -237,4 +266,4 @@ python -m pytest tests/ -q      # 162 tests covering every phase + API + LLM + l
 
 ---
 
-_Last updated: 2026-08-16 · TrendLens honest rebuild (Phases 0–7)_
+_Last updated: 2026-08-17 · TrendLens honest rebuild (Phases 0–7)_

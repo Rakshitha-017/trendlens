@@ -5,12 +5,14 @@
 > schema, design decisions and integrity rules — for future development,
 > AI-assisted sessions and onboarding.
 >
-> **Current state (2026-08-16):** All 7 pipeline phases complete and verified.
-> 162/162 tests pass. Frontend (React + Express proxy) serves only real,
-> measured pipeline data. Answers are rule-based by default with an **optional
-> LLM writing layer** (env opt-in, never a knowledge source) and a **real-time
-> trend feed** (Reddit when reachable, otherwise a **key-free Wikimedia
-> Commons** fallback — clearly labelled REAL vs synthetic demo).
+> **Current state (2026-08-17):** All 7 pipeline phases complete and verified.
+> 154/154 tests pass. Frontend (React + Express proxy) serves only real,
+> measured pipeline data. Answers focus on actionable visual advice — cluster
+> IDs, engagement scores, and lifecycle labels are intentionally hidden.
+> Optional **LLM writing layer** (env opt-in, never a knowledge source) and
+> **real-time trend feed** (Reddit when reachable, otherwise a **key-free
+> Wikimedia Commons** fallback — clearly labelled REAL vs synthetic demo).
+> Deployed via Render (free tier) with GitHub auto-deploy.
 
 ---
 
@@ -43,9 +45,12 @@
 8. **`.env` is loaded but never overrides.** `config.py` loads `<root>/.env`
    into the environment with a stdlib `_load_dotenv` (no python-dotenv dep);
    existing env vars always win, so CI/secrets-in-shell still work.
+9. **Answers hide pipeline internals.** Cluster IDs, engagement scores,
+   lifecycle labels, and trend scores are NOT shown to users. Answers focus
+   on actionable visual advice (what to shoot, how to style it).
 
 > This policy is enforced in code: `config.SYNTHETIC_DATA_WARNING` is embedded
-> in every artifact and API response; `src/rag.py` only emits measured fields.
+> in every artifact and API response; `src/rag.py` only emits visual content.
 
 ---
 
@@ -54,7 +59,7 @@
 **TrendLens** is a multimodal visual trend-detection system over SMPD Flickr
 images. It clusters images by CLIP visual semantics, tracks each cluster's
 activity over time, interprets each cluster with a vision-language model, and
-answers natural-language queries through a FAISS retrieval + honest formatter.
+answers natural-language queries through semantic retrieval + honest formatting.
 
 **Research question:** Can visual clusters derived from image embeddings
 reveal emerging patterns, and can they be queried conversationally?
@@ -77,6 +82,9 @@ trendlens/
 ├── README.md                   # User-facing overview + honest results
 ├── commands.md                 # All commands to run the project end-to-end
 ├── skills.md                   # This document — canonical context
+├── render.yaml                 # Render Blueprint for free deployment
+├── Dockerfile                  # Docker build for alternative deployment
+├── .github/workflows/ci-cd.yml # GitHub Actions CI/CD pipeline
 ├── train/                      # Image root (subdirs by user_id) — NOT committed
 ├── train_img_filepath.txt      # Manifest: train/<user_id>/<photo_id>.jpg — NOT committed
 ├── trendlens_outputs/          # Dataset inputs (metadata.csv, smpd_metadata.json) — NOT committed
@@ -89,11 +97,11 @@ trendlens/
 │   ├── trends.py               # Phase 4 — temporal aggregation + lifecycle
 │   ├── interpretation.py       # Phase 5 — BLIP captions → cluster interpretations
 │   ├── retrieval.py            # Phase 6 — CLIP-text FAISS index + eval
-│   ├── rag.py                  # Phase 7 — query → scope gate → honest answer (rule-based + live override)
+│   ├── rag.py                  # Phase 7 — query → scope gate → semantic retrieval → honest answer
 │   ├── llm.py                  # OPTIONAL writing layer — rewrites evidence into prose (env opt-in)
 │   ├── live.py                 # OPTIONAL real-time trends: Reddit → Wikimedia fallback → live_trends.json
 │   └── api.py                  # Phase 7 — stdlib HTTP API (:8000)
-├── tests/                      # 162 tests gating every phase
+├── tests/                      # 154 tests gating every phase
 ├── notebooks/                  # Executed notebooks: 01, 03, 04, 05, 06, 07
 ├── scripts/
 │   ├── run_all.sh              # Backend :8000 + frontend :3000
@@ -132,7 +140,7 @@ python -m src.api                # Phase 7 — HTTP API on :8000
 python -m src.live               # fetch → embed → HDBSCAN themes → live_trends.json
 
 # Tests gate every phase:
-python -m pytest tests/ -q       # 162 tests
+python -m pytest tests/ -q       # 154 tests
 ```
 
 Run the full stack with `./scripts/run_all.sh` (backend :8000 + frontend :3000).
@@ -150,7 +158,7 @@ Run the full stack with `./scripts/run_all.sh` (backend :8000 + frontend :3000).
 | 4 | `src/trends.py` | Per-cluster activity curve → Rising/Stable/Declining | **15 Rising / 10 Stable / 4 Declining** (noise-dominated — honest) |
 | 5 | `src/interpretation.py` | BLIP captions of 4 representatives per cluster | 29/29 clusters, mean confidence **0.073** |
 | 6 | `src/retrieval.py` | CLIP-text embeddings + FAISS flat-IP index + hit@k/MRR eval | hit@1 **0.95** · hit@5 **0.95** · MRR **0.95** (20 curated queries) |
-| 7 | `src/rag.py` + `src/api.py` | Query → CLIP text embed → FAISS top-k → scope gate → honest markdown | API verified end-to-end via frontend proxy |
+| 7 | `src/rag.py` + `src/api.py` | Query → scope gate → semantic retrieval → honest answer | API verified end-to-end via frontend proxy |
 
 ### Phase 3 details — clustering
 
@@ -202,10 +210,10 @@ Run the full stack with `./scripts/run_all.sh` (backend :8000 + frontend :3000).
   instead of the cluster listing.
 - The guide is built **only** from the retrieved clusters' real BLIP keywords
   and captions (subject anchor, look & feel, composition cues, the
-  representative shot) plus measured engagement/trend stats. Engagement
-  recommendations compare the top-5 clusters' measured averages; if the
-  highest-engagement cluster's keywords do **not** overlap the subject's, the
-  answer says so plainly (no invented "viral hacks").
+  representative shot). Cluster IDs, engagement scores, and lifecycle labels
+  are intentionally hidden — only actionable visual advice is shown.
+- If the highest-engagement cluster's keywords do **not** overlap the subject's,
+  the answer says so plainly (no invented "viral hacks").
 
 ---
 
@@ -265,15 +273,13 @@ lifecycle, text_trend_score`
 User query
     → two-stage scope gate (keywords → ~150 in-scope anchors vs out-scope anchors)
     → refused? → honest out-of-scope markdown answer (no retrieval)
-    → CLIP text encoder (clip-vit-base-patch32, same space as images)
-    → FAISS IndexFlatIP over 29 cluster interpretations
-    → top-k clusters
+    → semantic text retrieval (sentence-transformers all-MiniLM-L6-v2 + FAISS)
+    → top-k relevant text chunks (visual patterns, captions, keywords)
     → "what's trending right now?" → override with REAL live Reddit themes
          (if artifacts/cluster_metadata/live_trends.json exists)
-    → honest markdown answer from measured artifacts:
-         name/description/characteristics (VLM interpretation + confidence)
-         lifecycle, n_posts, avg engagement, growth (trend_metrics.csv)
-         representative image path
+    → clean answer from retrieved visual content:
+         name/description/characteristics (VLM interpretation)
+         captions, keywords — NO cluster IDs, NO engagement scores
      → OPTIONAL LLM writing layer (TRENDLENS_LLM_PROVIDER set):
          rewrites the SAME evidence into fluent prose; STRICT no-invent rules;
          any failure → automatic rule-based fallback.
@@ -306,13 +312,16 @@ loader, never overrides existing env vars; see `.env.example`) for
 - Env opt-in: `TRENDLENS_LLM_PROVIDER` (`gemini|openai|ollama`), `_API_KEY`,
   `_MODEL`, `_BASE_URL`. Unset → everything stays rule-based and local.
 - The LLM receives **only** the trimmed retrieved evidence (`_trim_evidence`:
-  query, top clusters with measured stats, live trends if present) + a STRICT
-  system prompt (no invented stats/platforms/hashtags; synthetic vs real
-  labelling must be preserved; footer cites the source). It never sees the raw
-  pipeline, never invents knowledge.
+  query, top visual patterns with names/descriptions/captions, live trends if
+  present) + a STRICT system prompt. Cluster IDs, engagement scores, lifecycle
+  labels, and pipeline internals are NOT sent to the LLM. It never sees the
+  raw pipeline, never invents knowledge.
+- The system prompt explicitly prohibits mentioning cluster IDs, engagement
+  scores, lifecycle labels, or numeric metrics in answers.
 - `format_answer_with_llm()` returns `None` on any failure (network, malformed
   response, disabled) → `run_query` falls back to the deterministic answer.
 - No new Python deps: plain `requests` to Gemini / OpenAI / Ollama REST APIs.
+- Max tokens increased to 4096 to prevent answer truncation.
 
 ### Real-time trend feed (`src/live.py`, OPTIONAL)
 
@@ -382,7 +391,8 @@ overrides (all optional): `TRENDLENS_API_HOST`, `TRENDLENS_API_PORT`, `PORT`.
   `services/apiClient.ts`; `pages/*` render real cluster fields
   (`average_engagement`, `n_posts`, `trend_score`, `lifecycle`,
   `representative_image_url`) — no mock data. `data/mockData.ts` was deleted.
-- Chat renders `supportingImages` thumbnails and an out-of-scope banner when
+- Chat renders `supportingImages` thumbnails only when explicitly requested
+  (e.g., "show me images") and an out-of-scope banner when
   `inScope === false`.
 - `PredictionPage`/`PredictionCard` are honest: `predicted*` fields are `null`
   by design, only observed cluster stats are shown, status **NOT EVALUATED**.
@@ -413,9 +423,9 @@ overrides (all optional): `TRENDLENS_API_HOST`, `TRENDLENS_API_PORT`, `PORT`.
 6. **FAISS IndexFlatIP** — exact inner product = cosine on L2-normalised
    vectors; 29 documents need no ANN.
 7. **Stdlib HTTP API** — zero web-framework dependency, Colab/free-tier-safe.
-8. **Honest formatter** — RAG answers come straight from measured artifacts;
-   anything unmeasured is `null` and the response footer repeats the synthetic
-   disclaimer.
+8. **Honest formatter** — RAG answers come straight from retrieved visual
+   content; anything unmeasured is `null` and the response footer repeats the
+   synthetic disclaimer.
 9. **Caching everywhere** — embeddings, text embeddings, FAISS index and
    cluster models are persisted and resumable; interrupted runs don't restart.
 10. **LLM as writer, not oracle** — if enabled it restyles retrieved evidence
@@ -428,6 +438,11 @@ overrides (all optional): `TRENDLENS_API_HOST`, `TRENDLENS_API_PORT`, `PORT`.
 12. **Source fallback** — `auto` tries Reddit, falls back to key-free
     Wikimedia Commons, so "what's trending right now" still answers honestly
     even on networks where Reddit's public JSON is 403-blocked.
+13. **Answers hide pipeline internals** — cluster IDs, engagement scores,
+    lifecycle labels, and trend scores are NOT shown to users. This keeps
+    the focus on actionable visual advice rather than data science metrics.
+14. **Images on demand** — representative images are only included in the API
+    response when the user explicitly asks for them (e.g., "show me images").
 
 ---
 
@@ -439,15 +454,15 @@ overrides (all optional): `TRENDLENS_API_HOST`, `TRENDLENS_API_PORT`, `PORT`.
 numpy, pandas, pyarrow, scipy, scikit-learn, Pillow,
 torch, torchvision, transformers, safetensors, huggingface_hub,
 faiss-cpu, hdbscan, umap-learn, pynndescent,
-matplotlib, seaborn, tqdm, PyYAML, requests, pytest
+matplotlib, seaborn, tqdm, PyYAML, requests, pytest,
+sentence-transformers
 ```
 
 Frontend: React 19 + Vite 6 + Express + Tailwind 4 + recharts + framer-motion
 (`frontend/package.json`). No LLM/Gemini package anywhere.
 
-> Removed in the honest rebuild: `sentence-transformers`, `google-genai`,
-> `python-dotenv` (Python), `lightgbm`, `@google/genai` (frontend) — none are
-> used by the current pipeline.
+> `sentence-transformers` added for semantic text chunk retrieval in RAG.
+> All other dependencies unchanged from the honest rebuild.
 
 ---
 
@@ -461,7 +476,29 @@ Frontend: React 19 + Vite 6 + Express + Tailwind 4 + recharts + framer-motion
 
 ---
 
-## 10. Status Summary
+## 10. Deployment
+
+### Render (Free Tier)
+
+- `render.yaml` defines two services: Python backend + React frontend
+- Auto-deploys from GitHub on each push to `development` or `main`
+- Free tier spins down after 15 min inactivity (cold start ~30s)
+- Environment variables: `TRENDLENS_LLM_API_KEY`, `TRENDLENS_LIVE_SOURCE`
+
+### Docker
+
+- `Dockerfile` builds both backend and frontend
+- `.dockerignore` excludes unnecessary files
+- Can be deployed to any Docker-compatible platform
+
+### GitHub Actions
+
+- `.github/workflows/ci-cd.yml` runs tests on each push/PR
+- Auto-deploys to Render on push to `development` or `main`
+
+---
+
+## 11. Status Summary
 
 | Phase | Module | Status | Key metric |
 |-------|--------|--------|------------|
@@ -475,8 +512,9 @@ Frontend: React 19 + Vite 6 + Express + Tailwind 4 + recharts + framer-motion
 | 7 | `rag.py` / `api.py` | ✅ | scope gate, live override, verified via frontend proxy |
 | — | `llm.py` (optional) | ✅ | writing layer: env opt-in, strict rules, auto fallback |
 | — | `live.py` (optional) | ✅ | real Reddit/Wikimedia themes → `live_trends.json` + `/api/live-trends` |
-| Tests | `tests/` | ✅ | 162/162 pass |
+| Tests | `tests/` | ✅ | 154/154 pass |
 | Frontend | `frontend/server.ts` | ✅ | proxy-only, never fabricates |
+| Deployment | `render.yaml` | ✅ | Render free tier, GitHub auto-deploy |
 
 ### Known limitations (reported, not hidden)
 
@@ -499,7 +537,8 @@ Frontend: React 19 + Vite 6 + Express + Tailwind 4 + recharts + framer-motion
 - The LLM writing layer is only as honest as its enforcement: it must rewrite
   retrieved evidence only (STRICT prompt) and falls back on failure; it is
   off by default.
+- Render free tier spins down after 15 min inactivity (cold start ~30s).
 
 ---
 
-_Last updated: 2026-08-16 · TrendLens honest rebuild (Phases 0–7)_
+_Last updated: 2026-08-17 · TrendLens honest rebuild (Phases 0–7)_

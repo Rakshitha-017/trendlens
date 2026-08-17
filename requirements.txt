@@ -24,6 +24,7 @@ huggingface_hub
 
 # ── Vector search ───────────────────────────────────────────────────────
 faiss-cpu>=1.8
+sentence-transformers>=2.2.0
 
 # ── Clustering & dim reduction ──────────────────────────────────────────
 hdbscan>=0.8.33
