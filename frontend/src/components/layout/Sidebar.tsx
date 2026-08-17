@@ -24,9 +24,9 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed }) => {
   const navItems = [
     { label: 'Overview', path: '/', icon: Compass, badge: 'Home' },
-    { label: 'AI Chatbot', path: '/chat', icon: MessageSquare, badge: 'RAG' },
+    { label: 'AI Chatbot', path: '/chat', icon: MessageSquare, badge: 'Gemini' },
     { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, badge: 'Live' },
-    { label: 'Cluster Explorer', path: '/clusters', icon: Layers, badge: '29' },
+    { label: 'Cluster Explorer', path: '/clusters', icon: Layers, badge: '124' },
     { label: 'AI Trend Query', path: '/query', icon: MessageSquare, badge: 'RAG' },
     { label: 'Prediction Model', path: '/prediction', icon: Sparkles, badge: 'ML' },
     { label: 'Analytics & Signals', path: '/analytics', icon: BarChart3 }
@@ -127,7 +127,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, setIsCollapsed })
             <span className="text-[10px] text-emerald-400 font-mono">Ready</span>
           </div>
           <p className="text-[10px] text-zinc-400 leading-relaxed">
-            CLIP ViT-B/32 + HDBSCAN + FAISS RAG Pipeline (no LLM)
+            CLIP ViT-L/14 + HDBSCAN + Gemini 3.6 RAG Pipeline
           </p>
         </div>
       )}
