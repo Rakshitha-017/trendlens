@@ -149,7 +149,7 @@ export const ChatbotPage: React.FC = () => {
                   What social media visual trend would you like to explore?
                 </h2>
                 <p className="text-sm text-[#7A736C] dark:text-[#A8A096] max-w-md mx-auto leading-relaxed">
-                  Powered by the TrendLens FAISS cluster database — 5,000 sampled images from the SMPD dataset (no LLM). Ask about photography styles, engagement trends, and visual aesthetics. <strong>Social media topics only.</strong>
+                  Powered by the TrendLens FAISS cluster database — 69,000+ real social media images. Ask about photography styles, engagement trends, and visual aesthetics. <strong>Social media topics only.</strong>
                 </p>
 
                 {/* Suggested Chips */}

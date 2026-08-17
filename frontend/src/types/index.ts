@@ -1,33 +1,77 @@
-export type TrendLifecycle = 'Rising' | 'Stable' | 'Declining';
+export type TrendCategory =
+  | 'Fashion & Apparel'
+  | 'Aesthetics & Lifestyle'
+  | 'Consumer Tech'
+  | 'Architecture & Interior'
+  | 'Food & Beverage'
+  | 'Digital Art & CGI';
 
-export interface ClusterData {
-  id: string;
-  cluster_id: number;
-  name: string;
-  description: string;
-  characteristics: string[];
-  confidence: number | null;
-  blip_caption: string;
-  n_posts: number | null;
-  lifecycle: TrendLifecycle | null;
-  average_engagement: number | null;
-  recent_growth: number | null;
-  trend_score: number | null;
-  representative_image: string | null;
-  representative_image_url: string | null;
+export type TrendLifecycle =
+  | 'Emerging'
+  | 'Surging'
+  | 'Peak'
+  | 'Maturing'
+  | 'Early Growth'
+  | 'Maturity / Evergreen'
+  | 'Fading';
+
+export interface PlatformDistribution {
+  tiktok: number;
+  instagram: number;
+  pinterest: number;
+  reddit: number;
+}
+
+export interface SentimentBreakdown {
+  positive: number;
+  neutral: number;
+  negative: number;
+}
+
+export interface TrajectoryPoint {
+  date: string;
+  score: number;
+  forecast?: boolean;
 }
 
 export interface TrendItem {
-  cluster_id: number;
-  name: string;
+  id: string;
+  title: string;
+  category: TrendCategory;
   description: string;
-  blip_caption: string;
-  lifecycle: TrendLifecycle | null;
-  n_posts: number;
-  recent_growth: number;
-  average_engagement: number;
-  trend_score: number;
-  representative_image_url: string | null;
+  representativeImage: string;
+  galleryImages?: string[];
+  growthVelocity: number;
+  volumeIndex?: number;
+  postCount: number;
+  lifecycle: TrendLifecycle;
+  popularityScore: number;
+  sentiment?: SentimentBreakdown;
+  platforms?: PlatformDistribution;
+  trajectory?: TrajectoryPoint[];
+  keyDrivers: string[];
+  blipCaption?: string;
+  clipEmbeddingVectorPreview?: string;
+  targetDemographics?: string;
+  opportunityInsight?: string;
+  tags?: string[];
+}
+
+export interface ClusterData {
+  id: string;
+  clusterName: string;
+  category: TrendCategory;
+  representativeImage: string;
+  growth: number;
+  popularityScore: number;
+  postCount: number;
+  clusterDensity: number;
+  topVisualFeatures: string[];
+  sampleImages: string[];
+  blipCaption: string;
+  timelineData: { month: string; posts: number }[];
+  relatedClusters: string[];
+  platforms: PlatformDistribution;
 }
 
 export interface AttachedFile {
@@ -42,8 +86,6 @@ export interface AttachedFile {
   category: 'image' | 'document' | 'audio' | 'data';
 }
 
-export type ScopeMethod = 'keywords' | 'anchors' | 'fallback';
-
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'assistant';
@@ -53,9 +95,6 @@ export interface ChatMessage {
   audioUrl?: string;
   retrievedClusters?: ClusterData[];
   supportingImages?: string[];
-  inScope?: boolean;
-  scopeReason?: string | null;
-  scopeMethod?: ScopeMethod | null;
   citationSource?: string;
   ragConfidence?: number;
   isStreaming?: boolean;
@@ -75,17 +114,18 @@ export interface Conversation {
 export type ThemeMode = 'light' | 'dark';
 
 export interface PredictionResult {
-  clusterId: number | null;
-  observedMeanEngagement: number | null;
-  observedPostCount: number | null;
-  lifecycle: string | null;
-  predictedLikes: number | null;
-  predictedComments: number | null;
-  predictedTotalEngagement: number | null;
-  nMseScore: number | null;
-  status: string;
-  note: string;
   imageUrl?: string;
+  predictedLikes: number;
+  predictedComments: number;
+  popularityScore: number;
+  confidenceScore: number;
+  aestheticCategory: string;
+  dominantColorPalette: string[];
+  detectedVisualFeatures: string[];
+  clipSimilarityScore: number;
+  matchedClusterName: string;
+  aiReasoning: string[];
+  optimizations: string[];
 }
 
 export interface StatMetric {

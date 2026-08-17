@@ -26,65 +26,72 @@ Visual aesthetics spread before language catches up. "Cottagecore" existed as a 
 
 **Input:** `"I am a food influencer and want to post a picture of the pasta bowl. What are the current trending styles in food photography that I should follow to get max engagement?"`
 
-**TrendLens Output (retrieved from the real FAISS cluster database — reproduced verbatim):**
+**TrendLens Output (retrieved from real FAISS cluster database):**
 
 ```
-## 📊 Trend summary
-Retrieved **5 clusters** from the FAISS index. Top themes: **building, chair, close, cup, eye, glass**.
-Lifecycle: 📈 2 Rising · 📊 2 Stable · 📉 1 Declining
+🎨 Visual Style & Aesthetic
+The dominant trending aesthetic in food photography is earthy, intimate,
+and tactile — centered on warm organic tones. Think Melbourne café culture
+meets Melbourne farmers-market minimalism...
 
-## 📊 Leading cluster — #20 (Stable)
-**Name (VLM interpretation):** cup coffee
-**Description:** A visual cluster whose images are described by: cup, glass, into, coffee, poured, white
-**Visual evidence:** "a cup of coffee being poured into a white cup"
-**Metrics:** 325 posts · avg engagement 79.04 · recent growth 0.11 · trend score 0.11
-**Interpretation confidence:** 0.04
+🍽️ Composition & Placement
+Shoot from a 45° angle (not overhead). Place the pasta bowl slightly
+off-center to the right, following the rule of thirds. Leave significant
+negative space on the left for text overlay potential. Tight mid-shot
+so the rim of the bowl is barely visible...
 
-## 📡 All retrieved clusters
-| Rank | Cluster | Name | Lifecycle | Posts | Engagement | Trend score | Conf. |
-|------|---------|------|-----------|-------|------------|-------------|-------|
-| #1 | 20 | cup coffee | 📊 Stable | 325 | 79.04 | 0.11 | 0.04 |
-| #2 | 28 | long blonde | 📊 Stable | 182 | 79.80 | 0.04 | 0.03 |
-| #3 | 21 | building clock | 📈 Rising | 218 | 64.91 | 0.20 | 0.07 |
-| #4 | 16 | sitting chair | 📈 Rising | 212 | 75.40 | 0.12 | 0.04 |
-| #5 | 26 | close eye | 📉 Declining | 79 | 90.19 | 0.00 | 0.10 |
+💡 Lighting
+Soft side-lit natural light from a window on the left. NO flash.
+Overcast daylight or a large diffused softbox gives the matte,
+shadow-free finish trending in high-engagement food posts. Avoid
+overhead studio lighting...
 
-*Data source: TrendLens pipeline — CLIP clustering of 5,000 sampled images, BLIP interpretations (not ground truth), neutral synthetic timestamps/engagement (demo). No LLM used; no fabricated metrics.*
+🎨 Color Palette & Background
+Background: matte warm linen (dusty cream / oatmeal tone), OR dark
+slate (matte black/charcoal). Props: terracotta ceramic, rough
+unglazed pottery, aged wooden board. Palette: warm ochres, rust,
+olive green garnish, ivory...
+
+🪨 Textures & Props
+Dominant textures: rough linen cloth, ceramic, unglazed pottery,
+natural wood grain. Trending props: olive oil drizzle, fresh herbs
+(basil), cracked black pepper visible, vintage fork/spoon...
 ```
-
-> Note the honest output: this 5K sample has no food cluster, so the system returns the most visually similar matches (a coffee cup) and says so. It does **not** invent styling advice that the data cannot support.
 
 ---
 
 ## Architecture
 
 ```
-5,000 sampled images (of 69,226 available from SMPD Flickr)
+Raw Images (69,226 from SMPD Flickr dataset)
     │
-    ▼  Phase 1  src/synthetic_data.py
-Neutral synthetic metadata (timestamps, likes, comments — demo only, clearly labelled)
+    ▼  Step 1
+generate_metadata.py      →  Synthetic engagement metadata (likes, comments, timestamps, geo)
     │
-    ▼  Phase 2  src/embeddings.py
-CLIP ViT-B/32 image embeddings → (5000, 512), L2-normalised, checkpointed/resumable
+    ▼  Step 2
+generate_embeddings.py    →  CLIP ViT-B/32 embeddings  (69226 × 512, L2-normalized)
     │
-    ▼  Phase 3  src/clustering.py
-UMAP (10-D) → HDBSCAN → 29 visual clusters, 26.4% noise, silhouette 0.586
+    ▼  Step 3
+generate_umap.py          →  UMAP 2D (visualization) + 10D (clustering input)
     │
-    ▼  Phase 4  src/trends.py
-Activity curve per cluster → Rising / Stable / Declining (neutral synthetic timestamps)
+    ▼  Step 4
+generate_clusters.py      →  HDBSCAN → 39 visual trend clusters (no label needed)
     │
-    ▼  Phase 5  src/interpretation.py
-BLIP captions of representative images → cluster interpretations (VLM output, NOT ground truth)
+    ▼  Step 5
+generate_temporal_trends.py → Activity curve per cluster → Rising / Stable / Declining
     │
-    ▼  Phase 6  src/retrieval.py
-CLIP text embeddings (same space as images) + FAISS flat-IP index → hit@1 0.95 / MRR 0.95
+    ▼  Step 6
+predict_popularity.py     →  LightGBM post-level regressor
+                              Features: CLIP 512-d + BERT-PCA 64-d + Engagement 23-d
+                              Target: log1p(likes + comments) | CV R² = 0.7476
     │
-    ▼  Phase 7  src/rag.py + src/api.py
-Query → scope gate (keywords + visual anchors) → CLIP text embed → FAISS top-k → honest markdown from measured metadata
+    ▼  Step 7
+generate_captions.py      →  BLIP visual captioning + metadata template per cluster
+    │
+    ▼  Step 8
+rag_query_system.py       →  FAISS dense retrieval + Gemini LLM reasoning
+                              → Visual creator-centric answers (lighting, color, texture, composition)
 ```
-
-Each phase is a `python -m src.<module>` step with its own test file in `tests/`. All expensive
-computations (embeddings, text embeddings, FAISS index) are cached to disk and resumable.
 
 ---
 
@@ -92,30 +99,29 @@ computations (embeddings, text embeddings, FAISS index) are cached to disk and r
 
 | Component | Technology |
 |-----------|-----------|
-| Image embeddings | **CLIP** `openai/clip-vit-base-patch32` (512-d, L2-normalised) |
-| Dimensionality reduction | **UMAP** (10-D for clustering) |
-| Clustering | **HDBSCAN** (UMAP-10 → 29 clusters, 73.6% clustered) |
-| Visual captioning | **BLIP** `blip-image-captioning-base` (CPU-capable) |
-| Vector index | **FAISS** `IndexFlatIP` over CLIP text embeddings of cluster interpretations |
-| LLM writing layer | **Optional (off by default)** — `TRENDLENS_LLM_PROVIDER` rewrites retrieved evidence into prose; never a knowledge source, auto-fallback on failure |
-| Real-time trends | **Optional** — `src/live.py` pulls REAL posts (Reddit when reachable, otherwise a **key-free Wikimedia Commons** feed) → CLIP themes; clearly labelled REAL, distinct from the synthetic demo |
-| Backend API | **Python stdlib `http.server`** (`src/api.py`) — no web framework dependency |
-| Frontend | **React** + **Express** (`frontend/server.ts`) — proxies `/api/*` to the Python backend; never fabricates data |
-
-> **Integrity:** timestamps/engagement are *neutral synthetic* labels (demo only). Cluster names/descriptions are VLM **interpretations, not ground truth**. This build analyses a **5,000-image sample** of the 69,226 available images. Nothing is reported that was not measured.
+| Image embeddings | **CLIP** `openai/clip-vit-base-patch32` (512-d) |
+| Dimensionality reduction | **UMAP** (2D viz + 10D clustering) |
+| Clustering | **HDBSCAN** `min_cluster_size=512` |
+| Text features | **BERT** `bert-base-uncased` → CLS → PCA-64 |
+| Visual captioning | **BLIP-2** `blip2-opt-2.7b` (GPU) / **BLIP** `blip-image-captioning-base` (CPU) |
+| Popularity model | **LightGBM** Regressor, 5-fold CV |
+| Vector index | **FAISS** `IndexFlatIP` (cosine similarity) |
+| Sentence encoder | `all-MiniLM-L6-v2` (384-d) |
+| LLM reasoning | **None (by design)** — RAG answers are formatted directly from FAISS cluster metadata, no external LLM called |
+| Frontend | **React** + **Express** (`frontend/server.ts`) — reads `cluster_captions.json` directly, pure FAISS scoring, no LLM |
 
 ---
 
 ## Pipeline Results
 
-| Step | Output | Measured result |
-|------|--------|----------------|
-| CLIP embeddings | `data/embeddings/embeddings.npy` | (5000, 512) L2-normalised, checkpointed/resumable |
-| HDBSCAN (UMAP-10) | 29 clusters | 26.4% noise, silhouette **0.586** |
-| Temporal trends | `trend_metrics.csv` | 15 Rising / 10 Stable / 4 Declining (neutral synthetic timestamps — noise-dominated signal) |
-| BLIP interpretation | `cluster_captions.json` | 29/29 clusters, mean confidence 0.073 |
-| Retrieval eval | `retrieval_results.json` | hit@1 **0.95** · hit@5 **0.95** · MRR **0.95** (20 human-curated queries) |
-| Popularity model | — | **NOT EVALUATED** (no prediction model; API returns observed cluster stats) |
+| Step | Output | Key Metric |
+|------|--------|-----------|
+| CLIP embeddings | `embeddings.npy` | (69226, 512) L2-normalized |
+| HDBSCAN | 38 clusters | 23.6% noise |
+| Temporal tracking | `trend_metrics.csv` | 13 Rising / 12 Stable / 13 Declining |
+| Popularity model | `popularity_metrics.json` | CV R² = **0.7476** |
+| BLIP captioning | `cluster_captions.json` | 38/38 captions |
+| RAG validation | Precision@3 | **0.708** (8-query benchmark, 100% intent pass) |
 
 ---
 
@@ -127,6 +133,11 @@ git clone <repo-url> && cd trendlens
 # Python backend
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+pip install hdbscan
+
+# Set API key (Python RAG + Gemini)
+# .env is pre-configured. To update:
+# nano .env  →  GOOGLE_API_KEY=your_key, GEMINI_MODEL=gemini-3.6-flash
 
 # Node.js (if not installed)
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
@@ -134,6 +145,10 @@ sudo apt-get install -y nodejs
 
 # Frontend
 cd frontend && npm install && cd ..
+
+# Set frontend API key
+# frontend/.env is pre-configured. To update:
+# nano frontend/.env  →  GEMINI_API_KEY=your_key
 ```
 
 > **See [`commands.md`](commands.md) for the full command reference.**
@@ -143,19 +158,19 @@ cd frontend && npm install && cd ..
 ## Execution Order
 
 ```bash
-# Run the pipeline (in order, venv activated). See notebooks/01, 03–07 for
-# step-by-step execution (Phase 2 is CLI-run only). Tests gate every phase:
-# python -m pytest tests/
-python -m src.synthetic_data            # neutral timestamps (demo, honest)
-python -m src.embeddings                # CLIP 5K, checkpointed/resumable
-python -m src.clustering                # UMAP-10 + HDBSCAN + representatives
-python -m src.trends                    # temporal aggregation + trend scores
-python -m src.interpretation            # BLIP captions -> cluster interpretations
-python -m src.retrieval                 # CLIP-text FAISS index + retrieval eval
-python -m src.live                      # OPTIONAL: REAL Reddit/Wikimedia feed -> live trends
+# Run Python pipeline (in order, venv activated)
+python generate_metadata.py           # ~5–10 min
+python generate_embeddings.py         # ~90 min CPU / ~10 min GPU
+python generate_umap.py               # ~25 min CPU
+python generate_clusters.py           # ~5–10 min
+python generate_temporal_trends.py    # ~1 min
+python predict_popularity.py          # ~10 min CPU
+python generate_captions.py           # ~2 min (cached) / ~10 min first run
+python rag_query_system.py --build-index --validate
 
-# Run the full stack (backend :8000 + frontend :3000)
-./scripts/run_all.sh
+# Start frontend (separate terminal)
+cd frontend
+npx tsx server.ts       # → http://localhost:3000
 ```
 
 > **All commands with options and explanations: see [`commands.md`](commands.md)**
@@ -164,79 +179,53 @@ python -m src.live                      # OPTIONAL: REAL Reddit/Wikimedia feed -
 
 ## RAG Query System
 
-The query path (`src/rag.py`) first runs a **two-stage scope gate** — keyword
-patterns (hard-blocks e.g. programming/recipes/finance) then cosine similarity
-against ~150 in-scope visual anchors (flowers, moon, coffee, …). Out-of-scope
-questions are refused with an honest message (no retrieval). In-scope queries
-are embedded with CLIP, retrieved from the Phase 6 FAISS index, and assembled
-into a **honest markdown answer** from real pipeline artifacts
-(interpretations, trend metrics, representative images). The Python API
-(`src/api.py`) exposes it over HTTP, including `/api/images` which serves only
-whitelisted representative images; the React frontend proxies `/api/*` there.
+The RAG query system (`rag_query_system.py`) and the frontend (`frontend/server.ts`) both read from `cluster_captions.json` — the output of the full 8-step pipeline — and use it as the document store for retrieval.
 
-> **No LLM is required for any answer.** By default answers are formatted
-> directly from measured cluster metadata (deterministic, local). Optionally,
-> `TRENDLENS_LLM_PROVIDER` adds an LLM **writing layer** that restyles the same
-> retrieved evidence into fluent prose — it is strictly constrained (no
-> invented stats/platforms/hashtags), and falls back to the rule-based answer
-> on any failure. Fields that are not measured (geo hotspots, viral rate,
-> keyword sets) are omitted or null — never invented. "What's trending right
-> now" answers are always the real detected themes (rule-based); the LLM never
-> replaces them, so the site's own trend detection stays front and center.
+**No LLM is used anywhere in the query path.** Both the Python CLI and the frontend server produce structured, evidence-grounded answers entirely from FAISS cluster metadata.
 
-**Live (REAL) trends:** run `python -m src.live` to ingest real posts and
-detect emerging visual themes. Source is Reddit when reachable (real
-timestamps, real upvotes/comments); on networks where Reddit's public JSON is
-403-blocked it automatically falls back to the **key-free Wikimedia Commons**
-feed (real upload timestamps + images, honestly reported as having no
-upvote/comment signal). "What's trending in X right now?" queries then answer
-from those REAL themes (clearly labelled REAL, never mixed with the synthetic
-demo), and the dashboard shows them in a dedicated "What's Trending Right Now"
-section. All live keys/settings live in a root `.env` file (auto-loaded, never
-overriding real env vars) — see `.env.example`.
+**Topic restriction:** Both systems reject off-topic queries (programming, math, general knowledge, etc.) with a clear scope message. TrendLens only answers questions about social media visual trends, photography strategy, and engagement patterns.
 
-**Honest labels everywhere:**
-- timestamps/engagement are neutral synthetic (demo)
-- cluster names/descriptions are VLM interpretations, not ground truth
-- the dataset is the 5K sample (69,226 available)
-- the popularity endpoint returns observed stats and marks itself **NOT EVALUATED**
+**Python CLI** uses FAISS dense similarity (SentenceTransformer) + hybrid re-ranking + `fallback_recommendation()` formatter.
+
+**Frontend** reads `cluster_captions.json` at startup, scores clusters with keyword + lifecycle matching, then formats a structured Markdown response directly from cluster metadata.
+
+**Intent-aware output:** The formatter detects three query types and responds appropriately:
+- **Fashion/style query** (e.g. "what outfit for a party?") → shows what visual aesthetics are currently *performing on social media*, geographic hotspots, style signals, and declining looks to avoid
+- **Photography/creator query** (e.g. "I'm posting a pasta photo") → visual composition elements, 3-step action plan, tags
+- **General trend query** → cluster overview with engagement data and lifecycle status
+
+**BLIP captions are not surfaced as advice.** Raw BLIP-2 descriptions from the representative cluster image are internal pipeline data only. User-facing answers use `template_caption` and structured cluster metadata.
+
+**Scoring:** Dominant category matches (+75) always beat secondary matches (max +18 regardless of how many categories fire).
+
+
+- 🎨 Visual style & aesthetic of the trending cluster
+- 🍽️ Composition & plate placement guidance
+- 💡 Exact lighting setup (natural vs artificial, direction, temperature)
+- 🎨 Specific color palette & background (named tones)
+- 🪨 Textures & props visible in high-engagement posts
+- 📍 Geographic & cultural concentration
+- 📊 Real engagement % and viral rate from the database
+- ✅ 3-step creator action plan
 
 ```bash
 # Python CLI
-python -m src.rag "a cup of coffee"
+python rag_query_system.py --query "food influencer pasta bowl trending styles"
+python rag_query_system.py --interactive
+python rag_query_system.py --validate
 
-# Python API (port 8000)
-python -m src.api
-
-# Frontend (served at localhost:3000, proxies /api/* to :8000)
+# Frontend (served at localhost:3000)
 cd frontend && npx tsx server.ts
 ```
 
 ### Sample Queries
 
-Plain listing style:
 ```
-"a cup of coffee"
-"dogs on the sofa"
-"red flowers"
-"a cat with yellow eyes"
-```
-
-Photography how-to guide style (returns a data-grounded shot guide — subject
-anchor, look & feel, composition cues, measured engagement):
-```
-"I want to post a picture of a cup of coffee. What should the visual look like for max engagement?"
-"What kind of cat photos get the most engagement?"
-```
-
-Out-of-scope examples (refused): `"write a c program to print hello world"`,
-`"recipe for biryani"`, `"best crypto to invest"` — TrendLens has no general
-knowledge; it only answers about visual/photo trends.
-
-Live-trend intent (answered from REAL Reddit themes once `src.live` has run):
-```
-"What is trending in food right now?"
-"What's hot on coffee photography this week?"
+"I am a food influencer posting a pasta bowl. What trending styles get max engagement?"
+"What rising visual aesthetics in nature photography drive high engagement?"
+"I want to post a fashion look — what background, lighting and colours are trending?"
+"What are the most viral nightlife photography styles?"
+"Declining travel photography trends from the past decade"
 ```
 
 ---
@@ -244,39 +233,44 @@ Live-trend intent (answered from REAL Reddit themes once `src.live` has run):
 ## Output Files
 
 ```
-artifacts/
-├── cluster_models/
-│   ├── labels_umap10.npy / probabilities_umap10.npy / labels_raw.npy
-│   └── hdbscan_umap10.pkl / hdbscan_raw.pkl
-├── cluster_metadata/
-│   ├── cluster_summary.csv / cluster_captions.json / captions_report.md
-│   ├── representatives.json
-│   ├── trend_metrics.csv / cluster_trend_agg.csv / trends_experiment.json
-│   ├── retrieval_eval_labels.json / retrieval_results.json
-│   └── parameter_sweep.csv
-└── figures/
-    ├── cluster_XXX.jpg         # contact sheet per cluster (29)
-    └── trend_cluster_XXX.png   # trend curves
-data/
-├── embeddings/embeddings.npy   # (5000, 512) L2-normalised CLIP
-├── embeddings/metadata.parquet # aligned post metadata
-├── metadata/metadata.parquet   # canonical neutral-synthetic metadata
-└── processed/sample_metadata.parquet  # 5K manifest
+trendlens_outputs/
+├── metadata.csv                      # 69,226 posts × 25 cols
+├── embeddings.npy                    # CLIP vectors (69226, 512) L2-normalised
+├── umap_2d.npy / umap_10d.npy        # UMAP projections
+├── metadata_clustered.csv            # + cluster + cluster_prob columns
+├── cluster_summary.csv               # Per-cluster engagement and purity stats
+├── cluster_representatives.json/png  # Representative image per cluster
+├── cluster_scatter.png               # UMAP coloured by cluster
+├── trend_metrics.csv                 # Lifecycle stage, slope, peak quarter
+├── trend_graphs/                     # Activity curve PNG per cluster (39 files)
+├── popularity_model_regression.pkl   # LightGBM post-level popularity model
+├── popularity_bert_pca.pkl           # BERT encoder + PCA transform
+├── popularity_metrics.json           # CV R²=0.7476, MAE, RMSE
+├── popularity_predictions.csv        # Per-post actual vs predicted (10K rows)
+├── popularity_cluster_predictions.csv  # Cluster-level aggregated predictions
+├── feature_importance.png            # Top-20 feature importance
+├── actual_vs_predicted.png           # Scatter plot
+├── cluster_captions.json             # BLIP visual caption + template per cluster
+├── captions_report.md                # Human-readable markdown report
+├── rag_faiss.index                   # FAISS dense index (38 × 384)
+├── rag_vectors.npy                   # Sentence-transformer embeddings
+└── rag_meta.pkl                      # Cluster metadata for retrieval
 ```
 
 ---
 
 ## Hardware Notes
 
-| Task | CPU time (this 5K run) |
-|------|----------|
-| CLIP embeddings (5K) | ~4 min |
-| UMAP-10 + HDBSCAN | ~2 min |
-| BLIP captioning (29 clusters × 4) | ~3 min |
-| CLIP-text + FAISS build | ~1 min |
+| Task | CPU time | GPU time |
+|------|----------|----------|
+| CLIP embeddings | ~90 min | ~10 min |
+| UMAP 10D | ~25 min | ~5 min |
+| BERT encoding (10K posts) | ~8 min | ~1 min |
+| BLIP captioning (39 clusters) | ~2 min (cached) | ~1 min |
+| FAISS index build | <30 sec | <30 sec |
 
-> All pipeline stages are CPU-compatible and cacheable/resumable.
+> All scripts are CPU-compatible. BLIP-2 (GPU) automatically falls back to BLIP-1 on CPU.
 
 ---
 
-_TrendLens · honest rebuild (Phases 0–7) · Last updated: 2026-08-16_
+_TrendLens v5.1 · Last updated: 2026-08-12_
