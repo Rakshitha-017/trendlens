@@ -452,38 +452,31 @@ def _build_text_chunks() -> list[dict[str, Any]]:
     """Build text chunks from cluster metadata for RAG retrieval.
 
     Each chunk is a textual description of a visual trend cluster, containing
-    the cluster name, description, visual characteristics, representative
-    caption, and lifecycle metadata. These chunks are embedded and indexed
-    for semantic retrieval at query time.
+    the cluster name, description, visual characteristics, and representative
+    caption. Pipeline internals (cluster IDs, engagement metrics, lifecycle
+    labels) are excluded from the text used for retrieval.
     """
     interpretations = load_interpretations()
-    metrics = load_metrics()
     chunks: list[dict[str, Any]] = []
     for it in interpretations:
         cid = int(it["cluster_id"])
-        m = metrics.loc[cid] if cid in metrics.index else None
         name = it.get("name", f"Cluster {cid}")
         desc = it.get("description", "")
         chars = it.get("characteristics", [])
         caps = it.get("sample_captions", [])
-        lifecycle = str(m["lifecycle"]) if m is not None and "lifecycle" in m.index else "unknown"
-        n_posts = int(m["n_posts"]) if m is not None and "n_posts" in m.index else 0
 
-        parts = [f"Visual trend cluster \"{name}\"."]
+        parts = [f"Visual trend: \"{name}\"."]
         if desc:
             parts.append(desc)
         if chars:
             parts.append(f"Key visual elements: {', '.join(str(x) for x in chars[:8])}.")
         if caps:
             parts.append(f'Representative image caption: "{caps[0]}".')
-        parts.append(f"Lifecycle: {lifecycle}. Contains {n_posts} posts in the dataset.")
 
         chunks.append({
             "cluster_id": cid,
             "text": " ".join(parts),
             "name": name,
-            "lifecycle": lifecycle,
-            "n_posts": n_posts,
         })
     return chunks
 
@@ -520,7 +513,7 @@ def retrieve_text_chunks(query: str, k: int = 3) -> list[dict[str, Any]]:
     """Retrieve the most relevant text chunks for a query via semantic search.
 
     Returns the top-k text chunks ranked by cosine similarity to the query.
-    Each chunk contains the text, cluster_id, name, lifecycle, and n_posts.
+    Each chunk contains the text, cluster_id, and name.
     """
     _load_rag_index()
     if _RAG_TEXT_INDEX is None or not _RAG_TEXT_CHUNKS:
@@ -617,21 +610,20 @@ def format_advice_answer(query: str, context: dict[str, Any]) -> str:
     subject = _advice_subject(query, top)
     feats = _feats(top)
     caption = top.get("blip_caption") or ""
-    lc = _lifecycle_str(top)
 
     lines: list[str] = []
     lines.append(f"## 📸 How to shoot \"{subject}\" for engagement")
     lines.append(
-        f"I matched \"{subject}\" against {context.get('total_clusters_analyzed', len(clusters))} "
-        f"CLIP clusters built from 5,000 sampled images and pulled the closest real look in the index."
+        f"I matched \"{subject}\" against the visual trend index and pulled the "
+        "closest real look."
     )
     lines.append(
-        "Everything below comes **only from the top keywords and BLIP captions of the closest "
-        "clusters** — no invented styling advice."
+        "Everything below comes **only from the keywords and captions of the "
+        "closest visual patterns** — no invented styling advice."
     )
     lines.append("")
 
-    lines.append(f"### Closest real look — cluster {top['cluster_id']} \"{top['name']}\" · {lc}")
+    lines.append(f"### Closest real look — \"{top['name']}\"")
     if caption:
         lines.append(f"> \"{caption}\"")
     if feats:
@@ -659,13 +651,6 @@ def format_advice_answer(query: str, context: dict[str, Any]) -> str:
         )
     lines.append("")
 
-    lines.append("**Measured engagement context (synthetic demo labels):**")
-    lines.append(
-        f"- {_fmt_int(top.get('n_posts'))} indexed posts · avg engagement **{_fmt_rate(top.get('average_engagement'))}** · "
-        f"trend score **{_fmt_rate(top.get('trend_score'))}** · lifecycle **{lc}**"
-    )
-    lines.append("")
-
     if len(clusters) > 1:
         subject_set = set(feats)
 
@@ -682,58 +667,56 @@ def format_advice_answer(query: str, context: dict[str, Any]) -> str:
         lines.append("**\"Max engagement\" — what the index actually supports:**")
         if eng_is_top:
             lines.append(
-                "- Your subject's own cluster already has the **highest measured engagement** among the "
+                "- Your subject's own look already has the **highest measured engagement** among the "
                 "retrieved matches — follow the look above."
             )
         elif eng_shared:
             lines.append(
-                f"- Among the retrieved matches, cluster **\"{best_eng['name']}\"** has the highest measured "
-                f"engagement (**{_fmt_rate(best_eng.get('average_engagement'))}**) and shares subject "
-                f"keywords (`{', '.join(sorted(eng_shared))}`). Borrowing those elements is the only "
+                f"- Among the retrieved matches, the \"{best_eng['name']}\" look has the highest measured "
+                f"engagement and shares subject keywords (`{', '.join(sorted(eng_shared))}`). Borrowing those elements is the only "
                 "engagement edge the data can point to."
             )
         else:
             lines.append(
-                f"- The highest-engagement retrieved cluster is \"{best_eng['name']}\" "
-                f"(**{_fmt_rate(best_eng.get('average_engagement'))}**), but its keywords "
+                f"- The highest-engagement look is \"{best_eng['name']}\" "
+                f"but its keywords "
                 f"(`{', '.join(_feats(best_eng)[:3])}`) do **not** overlap your subject — copying it would "
                 "change the subject, not improve your shot. No engagement advantage to borrow."
             )
         if trend_is_top:
             lines.append(
-                "- Your subject's cluster also **leads on trend score** among the retrieved matches."
+                "- Your subject's look also **leads on trend momentum** among the retrieved matches."
             )
         elif trend_shared:
             lines.append(
-                f"- For momentum, \"{best_trend['name']}\" leads on trend score "
-                f"(**{_fmt_rate(best_trend.get('trend_score'))}**) and overlaps your subject "
+                f"- For momentum, \"{best_trend['name']}\" leads on trend momentum "
+                f"and overlaps your subject "
                 f"(`{', '.join(sorted(trend_shared))}`)."
             )
         else:
             lines.append(
-                f"- The leading trending cluster is \"{best_trend['name']}\" (trend score "
-                f"**{_fmt_rate(best_trend.get('trend_score'))}**), but its look is a different subject — "
+                f"- The leading trending look is \"{best_trend['name']}\", but its look is a different subject — "
                 "no style to borrow."
             )
         lines.append("")
 
     lines.append("### ⚠️ Honest limits")
     lines.append(
-        "- Engagement/likes/timestamps are **neutral synthetic demo data** — not real platform signals, so "
+        "- Engagement/likes/timestamps are **synthetic demo data** — not real platform signals, so "
         "\"max engagement\" advice is demonstration only."
     )
     lines.append(
-        "- Cluster names and captions are **BLIP interpretations, not ground truth** about what makes a "
+        "- Cluster names and captions are **VLM interpretations, not ground truth** about what makes a "
         "photo popular."
     )
     lines.append(
-        f"- This is what the **5,000-image sample** actually contains for \"{subject}\". If no cluster covers "
+        f"- This is what the **5,000-image sample** actually contains for \"{subject}\". If no visual pattern covers "
         "the subject, the closest matches are the best evidence available."
     )
     lines.append("")
     lines.append(
         f"*Data source: TrendLens pipeline — CLIP clustering + BLIP interpretation of 5,000 sampled images, "
-        f"neutral synthetic timestamps/engagement (demo). No LLM used; no fabricated metrics.*"
+        f"neutral synthetic timestamps/engagement (demo). No fabricated metrics.*"
     )
     return "\n".join(lines)
 
@@ -748,19 +731,16 @@ def format_answer(query: str, context: dict[str, Any]) -> str:
             "Try a visual/category keyword (e.g., coffee, dogs, sneakers, sky).",
         ])
 
-    total = context.get("total_clusters_analyzed", len(clusters))
     lines: list[str] = []
     lines.append(f"## 🖼️ Visual themes closest to \"{query}\"")
     lines.append(
-        f"I searched {total} clusters built from CLIP embeddings of 5,000 "
-        f"sampled images. Here is what is closest to your question."
+        "Here are the visual patterns most similar to your question, based on "
+        "the image cluster analysis."
     )
     lines.append("")
 
     for c in clusters:
-        lines.append(
-            f"### #{c['rank']} — {c['name']}  `(cluster {c['cluster_id']})`"
-        )
+        lines.append(f"### {c['name']}")
         if c["description"]:
             lines.append(c["description"])
         if c["blip_caption"]:
@@ -769,39 +749,12 @@ def format_answer(query: str, context: dict[str, Any]) -> str:
             lines.append(
                 "Key features: " + ", ".join(str(x) for x in c["characteristics"][:6])
             )
-        lines.append(
-            f"- **Posts:** {_fmt_int(c['n_posts'])} · "
-            f"**Avg engagement:** {_fmt_rate(c['average_engagement'])} · "
-            f"**Trend score:** {_fmt_rate(c['trend_score'])} "
-            f"*(synthetic demo metrics)*"
-        )
-        lines.append(f"- **Lifecycle:** {_lifecycle_str(c)}")
         lines.append("")
 
-    lines.append("## 📊 Lifecycle breakdown (demo)")
-    rising = [c for c in clusters if c["lifecycle"] == "Rising"]
-    stable = [c for c in clusters if c["lifecycle"] == "Stable"]
-    declining = [c for c in clusters if c["lifecycle"] == "Declining"]
-    parts = []
-    if rising:
-        parts.append(f"📈 {len(rising)} Rising")
-    if stable:
-        parts.append(f"📊 {len(stable)} Stable")
-    if declining:
-        parts.append(f"📉 {len(declining)} Declining")
-    if parts:
-        lines.append("· ".join(parts))
     lines.append(
-        "> These lifecycle labels are **demo-only**: they are computed from "
-        "neutral synthetic timestamps, so they carry noise, not signal. Do "
-        "not treat them as real trend findings."
-    )
-    lines.append("")
-
-    lines.append(
-        f"*Data source: TrendLens pipeline — CLIP clustering of 5,000 sampled "
-        f"images, BLIP interpretations (not ground truth), neutral synthetic "
-        f"timestamps/engagement (demo). No LLM used; no fabricated metrics.*"
+        "*Data source: TrendLens pipeline — CLIP clustering of 5,000 sampled "
+        "images, BLIP interpretations (not ground truth), neutral synthetic "
+        "timestamps/engagement (demo). No fabricated metrics.*"
     )
     return "\n".join(lines)
 
@@ -1012,6 +965,18 @@ def format_live_trends_answer(query: str, context: dict[str, Any]) -> str:
 # ──────────────────────────────────────────────────────────────────────────
 # Query driver
 # ──────────────────────────────────────────────────────────────────────────
+_WANTS_IMAGES = re.compile(
+    r"(show|see|display|visuali[sz]e|give me|include|with).{0,20}"
+    r"(image|photo|pic|picture|shot|visual|representative|example)",
+    re.IGNORECASE,
+)
+
+
+def _wants_images(query: str) -> bool:
+    """Check if the user explicitly asks to see images."""
+    return bool(_WANTS_IMAGES.search(query))
+
+
 def run_query(query: str, k: int = 5) -> dict[str, Any]:
     scope = classify_scope(query)
 
@@ -1078,7 +1043,7 @@ def run_query(query: str, k: int = 5) -> dict[str, Any]:
         "scopeReason": None,
         "scopeMethod": scope.get("method"),
         "retrievedClusters": records,
-        "supportingImages": images,
+        "supportingImages": images if _wants_images(query) else [],
         "totalClustersAnalyzed": context["total_clusters_analyzed"],
         "disclaimer": context["disclaimer"],
         "sources": [],

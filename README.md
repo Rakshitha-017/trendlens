@@ -29,30 +29,45 @@ Visual aesthetics spread before language catches up. "Cottagecore" existed as a 
 **TrendLens Output (retrieved from the real FAISS cluster database — reproduced verbatim):**
 
 ```
-## 📊 Trend summary
-Retrieved **5 clusters** from the FAISS index. Top themes: **building, chair, close, cup, eye, glass**.
-Lifecycle: 📈 2 Rising · 📊 2 Stable · 📉 1 Declining
+## 📸 How to shoot "pasta bowl" for engagement
 
-## 📊 Leading cluster — #20 (Stable)
-**Name (VLM interpretation):** cup coffee
-**Description:** A visual cluster whose images are described by: cup, glass, into, coffee, poured, white
-**Visual evidence:** "a cup of coffee being poured into a white cup"
-**Metrics:** 325 posts · avg engagement 79.04 · recent growth 0.11 · trend score 0.11
-**Interpretation confidence:** 0.04
+I matched "pasta bowl" against the visual trend index and pulled the closest real look.
 
-## 📡 All retrieved clusters
-| Rank | Cluster | Name | Lifecycle | Posts | Engagement | Trend score | Conf. |
-|------|---------|------|-----------|-------|------------|-------------|-------|
-| #1 | 20 | cup coffee | 📊 Stable | 325 | 79.04 | 0.11 | 0.04 |
-| #2 | 28 | long blonde | 📊 Stable | 182 | 79.80 | 0.04 | 0.03 |
-| #3 | 21 | building clock | 📈 Rising | 218 | 64.91 | 0.20 | 0.07 |
-| #4 | 16 | sitting chair | 📈 Rising | 212 | 75.40 | 0.12 | 0.04 |
-| #5 | 26 | close eye | 📉 Declining | 79 | 90.19 | 0.00 | 0.10 |
+Everything below comes **only from the keywords and captions of the closest
+visual patterns** — no invented styling advice.
 
-*Data source: TrendLens pipeline — CLIP clustering of 5,000 sampled images, BLIP interpretations (not ground truth), neutral synthetic timestamps/engagement (demo). No LLM used; no fabricated metrics.*
+### Closest real look — "cup coffee"
+
+> "a cup of coffee being poured into a white cup"
+
+Top visual keywords: cup, glass, into, coffee, poured, white
+
+**What the data says about this look:**
+
+- 🎯 **Subject anchor:** `cup` is the defining element of every close image.
+- 🎨 **Look & feel:** `glass, into, coffee` are the words that characterise the
+  scene — use them as cues for colours, textures and props.
+- 🖼️ **Composition cues:** `poured, white` round out the frame in the source images.
+- 📐 **The representative shot:** "a cup of coffee being poured into a white cup" —
+  reproduce that moment (the action and setting it describes) to stay closest to
+  a look that already exists in the index.
+
+### ⚠️ Honest limits
+
+- Engagement/likes/timestamps are **synthetic demo data** — not real platform
+  signals, so "max engagement" advice is demonstration only.
+- Cluster names and captions are **VLM interpretations, not ground truth** about
+  what makes a photo popular.
+- This is what the **5,000-image sample** actually contains for "pasta bowl".
+  If no visual pattern covers the subject, the closest matches are the best
+  evidence available.
+
+*Data source: TrendLens pipeline — CLIP clustering + BLIP interpretation of
+5,000 sampled images, neutral synthetic timestamps/engagement (demo).
+No fabricated metrics.*
 ```
 
-> Note the honest output: this 5K sample has no food cluster, so the system returns the most visually similar matches (a coffee cup) and says so. It does **not** invent styling advice that the data cannot support.
+> Note the honest output: this 5K sample has no pasta cluster, so the system returns the most visually similar matches (a coffee cup) and says so. It does **not** invent styling advice that the data cannot support. Cluster IDs, engagement scores, and lifecycle labels are intentionally hidden from answers — only actionable visual advice is shown.
 
 ---
 
@@ -80,7 +95,7 @@ BLIP captions of representative images → cluster interpretations (VLM output, 
 CLIP text embeddings (same space as images) + FAISS flat-IP index → hit@1 0.95 / MRR 0.95
     │
     ▼  Phase 7  src/rag.py + src/api.py
-Query → scope gate (keywords + visual anchors) → CLIP text embed → FAISS top-k → honest markdown from measured metadata
+Query → scope gate (keywords + visual anchors) → semantic retrieval → LLM answer (optional)
 ```
 
 Each phase is a `python -m src.<module>` step with its own test file in `tests/`. All expensive
@@ -97,10 +112,12 @@ computations (embeddings, text embeddings, FAISS index) are cached to disk and r
 | Clustering | **HDBSCAN** (UMAP-10 → 29 clusters, 73.6% clustered) |
 | Visual captioning | **BLIP** `blip-image-captioning-base` (CPU-capable) |
 | Vector index | **FAISS** `IndexFlatIP` over CLIP text embeddings of cluster interpretations |
+| RAG retrieval | **sentence-transformers** `all-MiniLM-L6-v2` for semantic text chunk retrieval |
 | LLM writing layer | **Optional (off by default)** — `TRENDLENS_LLM_PROVIDER` rewrites retrieved evidence into prose; never a knowledge source, auto-fallback on failure |
 | Real-time trends | **Optional** — `src/live.py` pulls REAL posts (Reddit when reachable, otherwise a **key-free Wikimedia Commons** feed) → CLIP themes; clearly labelled REAL, distinct from the synthetic demo |
 | Backend API | **Python stdlib `http.server`** (`src/api.py`) — no web framework dependency |
 | Frontend | **React** + **Express** (`frontend/server.ts`) — proxies `/api/*` to the Python backend; never fabricates data |
+| Deployment | **Render** (free tier) — auto-deploys from GitHub on each commit |
 
 > **Integrity:** timestamps/engagement are *neutral synthetic* labels (demo only). Cluster names/descriptions are VLM **interpretations, not ground truth**. This build analyses a **5,000-image sample** of the 69,226 available images. Nothing is reported that was not measured.
 
@@ -140,6 +157,25 @@ cd frontend && npm install && cd ..
 
 ---
 
+## Deployment (Free)
+
+TrendLens can be deployed for free on [Render](https://render.com):
+
+1. Push your code to GitHub
+2. Go to Render → New → Blueprint
+3. Select your repository
+4. Render auto-detects `render.yaml` and creates both services
+
+**Auto-deploy:** Every push to `development` or `main` branch triggers a rebuild.
+
+**Environment variables on Render:**
+- `TRENDLENS_LLM_API_KEY` — your Gemini API key (if using LLM)
+- `TRENDLENS_LIVE_SOURCE` — `auto` or `wikimedia`
+
+> Render free tier spins down after 15 min inactivity (cold start ~30s).
+
+---
+
 ## Execution Order
 
 ```bash
@@ -168,14 +204,18 @@ The query path (`src/rag.py`) first runs a **two-stage scope gate** — keyword
 patterns (hard-blocks e.g. programming/recipes/finance) then cosine similarity
 against ~150 in-scope visual anchors (flowers, moon, coffee, …). Out-of-scope
 questions are refused with an honest message (no retrieval). In-scope queries
-are embedded with CLIP, retrieved from the Phase 6 FAISS index, and assembled
-into a **honest markdown answer** from real pipeline artifacts
-(interpretations, trend metrics, representative images). The Python API
-(`src/api.py`) exposes it over HTTP, including `/api/images` which serves only
-whitelisted representative images; the React frontend proxies `/api/*` there.
+are retrieved via semantic search over text chunks, and assembled
+into a **clean answer** from real pipeline artifacts (visual patterns, captions,
+keywords). The Python API (`src/api.py`) exposes it over HTTP, including
+`/api/images` which serves only whitelisted representative images; the React
+frontend proxies `/api/*` there.
+
+> **Answers focus on actionable visual advice only.** Cluster IDs, engagement
+> scores, lifecycle labels, and pipeline internals are intentionally hidden.
+> Users see only what to shoot and how — not the underlying data science.
 
 > **No LLM is required for any answer.** By default answers are formatted
-> directly from measured cluster metadata (deterministic, local). Optionally,
+> directly from retrieved visual patterns (deterministic, local). Optionally,
 > `TRENDLENS_LLM_PROVIDER` adds an LLM **writing layer** that restyles the same
 > retrieved evidence into fluent prose — it is strictly constrained (no
 > invented stats/platforms/hashtags), and falls back to the rule-based answer
@@ -223,7 +263,7 @@ Plain listing style:
 ```
 
 Photography how-to guide style (returns a data-grounded shot guide — subject
-anchor, look & feel, composition cues, measured engagement):
+anchor, look & feel, composition cues):
 ```
 "I want to post a picture of a cup of coffee. What should the visual look like for max engagement?"
 "What kind of cat photos get the most engagement?"
@@ -279,4 +319,4 @@ data/
 
 ---
 
-_TrendLens · honest rebuild (Phases 0–7) · Last updated: 2026-08-16_
+_TrendLens · honest rebuild (Phases 0–7) · Last updated: 2026-08-17_

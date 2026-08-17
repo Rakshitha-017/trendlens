@@ -46,7 +46,15 @@ STRICT RULES — violations are unacceptable:
 3. If the retrieved context contains no real match for the subject, say so honestly and describe the closest matches from what WAS retrieved.
 4. Answer the user's question directly. Do not say you are an AI/LLM. Do not refuse.
 5. Keep a short footer citing the data source and stating no fabricated metrics were invented.
-6. Keep the response reasonably concise (roughly 150–350 words of body text, plus bullets)."""
+6. Keep the response reasonably concise (roughly 150–350 words of body text, plus bullets).
+
+CRITICAL — NEVER mention these in your answer:
+- Cluster IDs (e.g. "Cluster 20", "cluster 17", "Cluster #5")
+- Engagement scores, post counts, or trend scores (e.g. "79.04", "325 posts", "trend score 0.11")
+- Lifecycle labels (e.g. "Rising", "Stable", "Declining")
+- Any numeric metrics from the pipeline internals
+
+Instead, describe the visual patterns and actionable advice in plain language. Reference the visual content (keywords, characteristics, captions) not the pipeline internals."""
 
 
 def llm_config() -> dict[str, Any]:
@@ -82,21 +90,21 @@ def llm_enabled() -> bool:
 
 
 def _trim_evidence(context: dict[str, Any]) -> dict[str, Any]:
-    """Reduce the context to a compact, serialisable evidence bundle."""
+    """Reduce the context to a compact, serialisable evidence bundle.
+
+    Excludes cluster IDs, engagement scores, lifecycle labels, and other
+    pipeline internals — only the visual content (name, description,
+    characteristics, captions) is passed to the LLM.
+    """
     clusters = []
     for c in context.get("retrieved_clusters", []):
         clusters.append(
             {
                 "rank": c.get("rank"),
-                "cluster_id": c.get("cluster_id"),
                 "name": c.get("name"),
                 "description": c.get("description"),
                 "blip_caption": c.get("blip_caption"),
                 "characteristics": c.get("characteristics", []),
-                "lifecycle": c.get("lifecycle"),
-                "n_posts": c.get("n_posts"),
-                "average_engagement": c.get("average_engagement"),
-                "trend_score": c.get("trend_score"),
                 "interpretation_confidence": c.get("interpretation_confidence"),
             }
         )
@@ -141,7 +149,7 @@ def _call_gemini(cfg: dict[str, Any], user_prompt: str) -> Optional[str]:
                 {"text": user_prompt},
             ]
         }],
-        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1500},
+        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 4096},
     }
     resp = requests.post(url, json=payload, timeout=60)
     resp.raise_for_status()
@@ -162,7 +170,7 @@ def _call_openai(cfg: dict[str, Any], user_prompt: str) -> Optional[str]:
             {"role": "user", "content": user_prompt},
         ],
         "temperature": 0.7,
-        "max_tokens": 1500,
+        "max_tokens": 4096,
     }
     resp = requests.post(url, json=payload, headers=headers, timeout=60)
     resp.raise_for_status()

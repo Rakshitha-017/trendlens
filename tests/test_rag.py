@@ -73,11 +73,12 @@ class TestFormatAnswer:
         }
         out = rag.format_answer("moon", ctx)
         assert "Moon Sky" in out
-        assert "Rising" in out
-        assert "12.50" in out
-        assert "no fabricated metrics" in out
+        assert "No fabricated metrics" in out
+        # Should NOT include pipeline internals
+        assert "Rising" not in out
+        assert "12.50" not in out
 
-    def test_missing_metrics_renders_dash(self):
+    def test_missing_metrics_renders_clean(self):
         ctx = {"retrieved_clusters": [{
             "cluster_id": 0, "rank": 1, "similarity_score": 0.1, "name": "x",
             "description": "", "blip_caption": "", "characteristics": [],
@@ -86,8 +87,7 @@ class TestFormatAnswer:
             "text_trend_score": None,
         }]}
         out = rag.format_answer("q", ctx)
-        assert "—" in out
-        assert "Unknown" in out or "n/a" in out
+        assert "No fabricated metrics" in out
 
 
 class TestAdviceFormat:
@@ -124,10 +124,11 @@ class TestAdviceFormat:
         assert "How to shoot" in out
         assert "cup of coffee" in out
         assert "cup coffee" in out
-        assert "79.04" in out
         assert "no invented styling advice" in out
         assert "synthetic demo data" in out
-        assert "No LLM used" in out
+        # Should NOT include pipeline internals
+        assert "79.04" not in out
+        assert "No LLM used" not in out
 
     def test_advice_no_overlap_is_honest(self):
         coffee = self._cluster()
