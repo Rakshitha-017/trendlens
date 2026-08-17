@@ -1,5 +1,39 @@
+# Large raw data
 train/
-*.npy
-*.csv
-*.json
+train_img_filepath.txt
+data/raw/
+data/processed/
+data/embeddings/
+data/metadata/
+
+# Generated artifacts
+artifacts/
+trendlens_outputs/
+
+# Python
 venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets (.env lives at project root; see .env.example)
+.env
+
+# Live data (Reddit/Wikimedia posts, images, cluster metadata)
+data/live/
+artifacts/cluster_metadata/live_trends.json
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# Dataset / embedding formats
+*.npy
+*.parquet
+
+# OS / editor
+.DS_Store

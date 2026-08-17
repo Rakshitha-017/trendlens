@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Bell, Sparkles, Radio, Compass, ArrowUpRight, Flame } from 'lucide-react';
+import { Search, Bell, Sparkles, Radio, Flame } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface HeaderProps {
@@ -48,7 +48,7 @@ export const Header: React.FC<HeaderProps> = ({ isCollapsed }) => {
         <div className="flex items-center gap-3 shrink-0">
           <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 text-xs font-semibold">
             <Radio className="w-3 h-3 animate-pulse text-emerald-400" />
-            486k SMPD Posts Active
+            5,000 indexed images
           </div>
 
           <button
@@ -56,7 +56,7 @@ export const Header: React.FC<HeaderProps> = ({ isCollapsed }) => {
             className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md shadow-purple-600/20 transition-all"
           >
             <Flame className="w-3.5 h-3.5 text-amber-300" />
-            Test Image Predictor
+            Observed Stats
           </button>
 
           <div className="w-8 h-8 rounded-xl bg-purple-950/80 border border-purple-800/80 text-purple-300 font-bold text-xs flex items-center justify-center shrink-0">
