@@ -1,153 +1,180 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  LineChart,
-  Line,
   BarChart,
   Bar,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
-  ResponsiveContainer
+  ResponsiveContainer,
+  Legend
 } from 'recharts';
-import { BarChart3, Calendar, Filter, Sparkles, Layers, Flame, Radio } from 'lucide-react';
+import { BarChart3, Layers } from 'lucide-react';
+import { api } from '../services/apiClient';
+import { ClusterData } from '../types';
 import { Badge } from '../components/ui/Badge';
 
+const LIFECYCLE_COLORS: Record<string, string> = {
+  Rising: '#22c55e',
+  Stable: '#06b6d4',
+  Declining: '#f43f5e',
+};
+
 export const AnalyticsPage: React.FC = () => {
-  const [platformFilter, setPlatformFilter] = useState('All');
-  const [timeframe, setTimeframe] = useState('30D');
+  const [clusters, setClusters] = useState<ClusterData[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  const platformComparisonData = [
-    { name: 'Jan', TikTok: 120, Instagram: 90, Pinterest: 60, Reddit: 35 },
-    { name: 'Feb', TikTok: 180, Instagram: 110, Pinterest: 75, Reddit: 45 },
-    { name: 'Mar', TikTok: 240, Instagram: 140, Pinterest: 95, Reddit: 60 },
-    { name: 'Apr', TikTok: 310, Instagram: 175, Pinterest: 120, Reddit: 78 },
-    { name: 'May', TikTok: 390, Instagram: 210, Pinterest: 145, Reddit: 95 },
-    { name: 'Jun', TikTok: 480, Instagram: 250, Pinterest: 170, Reddit: 110 }
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .clusters()
+      .then((res) => {
+        if (!cancelled) setClusters(res.clusters);
+      })
+      .catch(() => {
+        if (!cancelled)
+          setError('Could not reach the TrendLens backend — start it with `python -m src.api` and reload.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const heatmapMatrix = [
-    { day: 'Mon', hours: [12, 18, 35, 62, 88, 94, 76, 42] },
-    { day: 'Tue', hours: [14, 22, 40, 71, 91, 98, 82, 48] },
-    { day: 'Wed', hours: [15, 25, 48, 80, 95, 100, 89, 52] },
-    { day: 'Thu', hours: [18, 28, 52, 85, 96, 99, 91, 58] },
-    { day: 'Fri', hours: [22, 35, 68, 92, 100, 98, 94, 65] },
-    { day: 'Sat', hours: [30, 48, 82, 98, 92, 88, 80, 50] },
-    { day: 'Sun', hours: [25, 42, 75, 90, 86, 82, 72, 44] }
-  ];
+  const sorted = useMemo(() => [...clusters].sort((a, b) => (b.average_engagement ?? 0) - (a.average_engagement ?? 0)), [clusters]);
+  const topEngagement = sorted.slice(0, 12).map((c) => ({
+    name: `#${c.cluster_id}`,
+    engagement: Number((c.average_engagement ?? 0).toFixed(2)),
+    lifecycle: c.lifecycle ?? 'n/a',
+  }));
+
+  const postVolume = useMemo(
+    () =>
+      [...clusters]
+        .sort((a, b) => (b.n_posts ?? 0) - (a.n_posts ?? 0))
+        .slice(0, 12)
+        .map((c) => ({
+          name: `#${c.cluster_id}`,
+          posts: c.n_posts ?? 0,
+          lifecycle: c.lifecycle ?? 'n/a',
+        })),
+    [clusters]
+  );
+
+  const lifecycleCounts = useMemo(() => {
+    const counts: Record<string, number> = { Rising: 0, Stable: 0, Declining: 0 };
+    clusters.forEach((c) => {
+      if (c.lifecycle && c.lifecycle in counts) counts[c.lifecycle] += 1;
+    });
+    return counts;
+  }, [clusters]);
 
   return (
     <div className="space-y-8 animate-fadeIn">
-      
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-950/80 text-purple-300 border border-purple-800/60 text-xs font-semibold mb-2">
-            <BarChart3 className="w-3.5 h-3.5 text-cyan-400" /> Platform Cross-Section Signals
+            <BarChart3 className="w-3.5 h-3.5 text-cyan-400" /> Observed Index Signals
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-            Advanced Signal Analytics
+            Analytics &amp; Signals
           </h1>
           <p className="text-xs sm:text-sm text-zinc-400">
-            Cross-platform engagement velocity, posting heatmaps, and trend penetration metrics.
+            Real statistics measured from the CLIP + HDBSCAN index of 5,000 sampled images.
           </p>
         </div>
 
-        {/* Filter Toolbar */}
-        <div className="flex items-center gap-2 bg-zinc-900 p-1.5 rounded-2xl border border-zinc-800 shrink-0">
-          {['7D', '30D', '90D', 'YTD'].map((t) => (
-            <button
-              key={t}
-              onClick={() => setTimeframe(t)}
-              className={`px-3 py-1 rounded-xl text-xs font-bold transition-colors ${
-                timeframe === t ? 'bg-purple-600 text-white' : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              {t}
-            </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Badge variant="secondary" size="lg" icon={<Layers className="w-4 h-4" />}>
+            {clusters.length > 0 ? `${clusters.length} clusters` : 'Loading…'}
+          </Badge>
+        </div>
+      </div>
+
+      {error && (
+        <div className="glass-panel rounded-2xl p-4 border border-amber-800/60 text-xs text-amber-300">{error}</div>
+      )}
+
+      {/* Lifecycle distribution */}
+      <div className="glass-panel rounded-3xl p-6 border border-zinc-800">
+        <h3 className="text-base font-bold text-white mb-1">Cluster Lifecycle Distribution</h3>
+        <p className="text-xs text-zinc-400 mb-4">
+          Demo-only labels from neutral synthetic timestamps — noise, not signal.
+        </p>
+        <div className="flex items-end gap-6 h-40">
+          {(['Rising', 'Stable', 'Declining'] as const).map((lc) => (
+            <div key={lc} className="flex flex-col items-center gap-2 flex-1">
+              <span className="text-sm font-black text-white">{lifecycleCounts[lc]}</span>
+              <div
+                className="w-full max-w-40 rounded-t-lg transition-all"
+                style={{
+                  height: `${clusters.length ? (lifecycleCounts[lc] / clusters.length) * 100 : 0}%`,
+                  minHeight: lifecycleCounts[lc] ? 12 : 2,
+                  backgroundColor: LIFECYCLE_COLORS[lc],
+                }}
+              />
+              <span className="text-xs font-bold" style={{ color: LIFECYCLE_COLORS[lc] }}>
+                {lc}
+              </span>
+            </div>
           ))}
         </div>
       </div>
 
-      {/* Main Chart 1: Cross-Platform Velocity */}
+      {/* Engagement bar chart */}
       <div className="glass-panel rounded-3xl p-6 space-y-4 border border-zinc-800">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Flame className="w-4 h-4 text-purple-400" /> Cross-Platform Engagement Growth Velocity
-            </h3>
-            <p className="text-xs text-zinc-400">Monthly post engagement index across TikTok, Instagram, Pinterest, Reddit</p>
-          </div>
+        <div>
+          <h3 className="text-base font-bold text-white flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-purple-400" /> Average Engagement by Cluster (Top 12)
+          </h3>
+          <p className="text-xs text-zinc-400">
+            Real mean likes/comments across the posts assigned to each cluster. Per-platform and hourly data do not exist.
+          </p>
         </div>
-
-        <div className="h-72 w-full pt-4">
+        <div className="h-80 w-full pt-2">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={platformComparisonData}>
+            <BarChart data={topEngagement}>
               <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
               <XAxis dataKey="name" stroke="#71717a" fontSize={12} />
               <YAxis stroke="#71717a" fontSize={12} />
-              <Tooltip contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }} />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
+              />
               <Legend />
-              <Line type="monotone" dataKey="TikTok" stroke="#06b6d4" strokeWidth={3} dot={{ r: 4 }} />
-              <Line type="monotone" dataKey="Instagram" stroke="#a855f7" strokeWidth={3} dot={{ r: 4 }} />
-              <Line type="monotone" dataKey="Pinterest" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="Reddit" stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} />
-            </LineChart>
+              <Bar dataKey="engagement" name="Avg engagement" radius={[8, 8, 0, 0]}>
+                {topEngagement.map((entry, idx) => (
+                  <Cell key={idx} fill={LIFECYCLE_COLORS[entry.lifecycle] ?? '#a855f7'} />
+                ))}
+              </Bar>
+            </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Engagement Heatmap Matrix Placeholder */}
+      {/* Post volume bar chart */}
       <div className="glass-panel rounded-3xl p-6 space-y-4 border border-zinc-800">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-cyan-400" /> Hourly Engagement Heatmap Matrix
-            </h3>
-            <p className="text-xs text-zinc-400">Optimal posting hours mapped against 486,000 indexed post interactions</p>
-          </div>
-          <Badge variant="secondary" size="sm">Peak: Wed/Thu 6PM–9PM</Badge>
+        <div>
+          <h3 className="text-base font-bold text-white flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-cyan-400" /> Indexed Post Volume by Cluster (Top 12)
+          </h3>
+          <p className="text-xs text-zinc-400">Number of sampled images assigned to each cluster.</p>
         </div>
-
-        <div className="overflow-x-auto pt-2">
-          <div className="min-w-[600px] space-y-2">
-            <div className="grid grid-cols-9 text-[10px] text-zinc-500 font-bold uppercase text-center">
-              <div>Day</div>
-              <div>3 AM</div>
-              <div>6 AM</div>
-              <div>9 AM</div>
-              <div>12 PM</div>
-              <div>3 PM</div>
-              <div>6 PM</div>
-              <div>9 PM</div>
-              <div>12 AM</div>
-            </div>
-
-            {heatmapMatrix.map((row, i) => (
-              <div key={i} className="grid grid-cols-9 items-center gap-1.5 text-xs">
-                <span className="font-bold text-zinc-400 text-center">{row.day}</span>
-                {row.hours.map((val, hIdx) => {
-                  const opacity = val / 100;
-                  return (
-                    <div
-                      key={hIdx}
-                      className="h-8 rounded-lg flex items-center justify-center text-[10px] font-bold text-white/90 border border-purple-500/20 transition-all hover:scale-105 cursor-pointer"
-                      style={{
-                        backgroundColor: `rgba(124, 58, 237, ${Math.max(opacity, 0.15)})`
-                      }}
-                      title={`${row.day} Engagement Index: ${val}/100`}
-                    >
-                      {val}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
+        <div className="h-80 w-full pt-2">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={postVolume}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+              <XAxis dataKey="name" stroke="#71717a" fontSize={12} />
+              <YAxis stroke="#71717a" fontSize={12} />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
+              />
+              <Legend />
+              <Bar dataKey="posts" name="Indexed posts" fill="#06b6d4" radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
-
     </div>
   );
 };
