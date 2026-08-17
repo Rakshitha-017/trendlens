@@ -1,29 +1,31 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Sparkles, Bot, User, Lightbulb, TrendingUp, TrendingDown, Minus, MapPin, Tag, BarChart2 } from 'lucide-react';
+import { Send, Sparkles, Bot, User, Lightbulb, TrendingUp, TrendingDown, Minus, BarChart2 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import ReactMarkdown from 'react-markdown';
 
 interface ClusterCard {
   id: string;
+  cluster_id: number;
   name: string;
-  blipCaption: string;
+  blip_caption: string;
+  characteristics: string[];
   similarityScore: number;
-  postCount: number;
-  lifecycle: string;
-  category: string;
-  engagement: number;
-  viralRate: number;
-  tags: string[];
-  hotCities: string[];
+  n_posts: number | null;
+  lifecycle: string | null;
+  average_engagement: number | null;
+  trend_score: number | null;
+  representative_image_url: string | null;
 }
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  inScope?: boolean;
   clusters?: ClusterCard[];
+  supportingImages?: string[];
   totalAnalyzed?: number;
   timestamp: string;
 }
@@ -77,7 +79,9 @@ export const TrendQueryPage: React.FC = () => {
         id: `a-${Date.now()}`,
         role: 'assistant',
         content: data.answer || 'No response from TrendLens.',
+        inScope: data.inScope,
         clusters: data.retrievedClusters || [],
+        supportingImages: data.supportingImages || [],
         totalAnalyzed: data.totalClustersAnalyzed,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
@@ -104,7 +108,7 @@ export const TrendQueryPage: React.FC = () => {
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-white">TrendLens Visual Intelligence</h1>
         <p className="text-xs sm:text-sm text-zinc-400">
-          Answers grounded in real CLIP cluster analysis of 69,000+ social images. Ask about visual styles, photography strategy, and engagement trends — <span className="text-amber-400 font-semibold">social media topics only.</span>
+          Answers grounded in real CLIP cluster analysis of 5,000 sampled images (69,226 available). Ask about visual styles, photography strategy, and engagement trends — <span className="text-amber-400 font-semibold">social media topics only.</span>
         </p>
       </div>
 
@@ -153,6 +157,22 @@ export const TrendQueryPage: React.FC = () => {
                   ) : msg.content}
                 </div>
 
+                {/* Supporting images from the retrieved clusters */}
+                {msg.supportingImages && msg.supportingImages.length > 0 && (
+                  <div className="w-full">
+                    <p className="text-xs text-zinc-500 font-medium mb-1.5">
+                      🖼️ Representative images
+                    </p>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                      {msg.supportingImages.slice(0, 6).map((img, i) => (
+                        <div key={i} className="h-20 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-950">
+                          <img src={img} alt="Visual match" className="w-full h-full object-cover" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Real cluster cards */}
                 {msg.clusters && msg.clusters.length > 0 && (
                   <div className="w-full space-y-2">
@@ -162,33 +182,36 @@ export const TrendQueryPage: React.FC = () => {
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {msg.clusters.map(c => {
-                        const lc = LIFECYCLE_CONFIG[c.lifecycle] || LIFECYCLE_CONFIG.Stable;
+                        const lc = LIFECYCLE_CONFIG[c.lifecycle ?? ''] || LIFECYCLE_CONFIG.Stable;
                         return (
-                          <div key={c.id} className={`rounded-xl border p-3 space-y-1.5 ${lc.bg} text-xs`}>
+                          <div key={c.id} className={`rounded-xl border p-3 space-y-1.5 text-xs ${lc.bg}`}>
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-semibold text-zinc-200 line-clamp-1 flex-1">{c.name}</span>
                               <span className={`flex items-center gap-1 font-bold shrink-0 ${lc.color}`}>
-                                {lc.icon} {c.lifecycle}
+                                {lc.icon} {c.lifecycle ?? 'n/a'}
                               </span>
                             </div>
-                            {c.blipCaption && (
-                              <p className="text-zinc-400 italic line-clamp-2">"{c.blipCaption}"</p>
+                            {c.representative_image_url && (
+                              <img
+                                src={c.representative_image_url}
+                                alt={c.name}
+                                className="h-24 w-full rounded-lg object-cover"
+                              />
+                            )}
+                            {c.blip_caption && (
+                              <p className="text-zinc-400 italic line-clamp-2">"{c.blip_caption}"</p>
+                            )}
+                            {c.characteristics && c.characteristics.length > 0 && (
+                              <p className="text-zinc-500">Features: {c.characteristics.slice(0, 4).join(', ')}</p>
                             )}
                             <div className="flex flex-wrap gap-x-3 gap-y-1 text-zinc-500">
-                              <span className="flex items-center gap-1"><BarChart2 className="w-3 h-3" />{c.engagement?.toFixed(2)}% eng</span>
-                              <span>🔥 {c.viralRate?.toFixed(0)}% viral</span>
-                              <span>{c.postCount?.toLocaleString()} posts</span>
+                              <span className="flex items-center gap-1">
+                                <BarChart2 className="w-3 h-3" />
+                                {c.average_engagement?.toFixed(2) ?? '—'} avg eng
+                              </span>
+                              <span>Trend {c.trend_score?.toFixed(3) ?? '—'}</span>
+                              <span>{(c.n_posts ?? 0).toLocaleString()} posts</span>
                             </div>
-                            {c.hotCities?.length > 0 && (
-                              <p className="flex items-center gap-1 text-zinc-500">
-                                <MapPin className="w-3 h-3 shrink-0" />{c.hotCities.slice(0,3).join(', ')}
-                              </p>
-                            )}
-                            {c.tags?.length > 0 && (
-                              <p className="flex items-center gap-1 text-zinc-600">
-                                <Tag className="w-3 h-3 shrink-0" />{c.tags.slice(0,4).join(' ')}
-                              </p>
-                            )}
                           </div>
                         );
                       })}
