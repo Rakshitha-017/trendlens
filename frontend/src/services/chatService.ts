@@ -35,7 +35,7 @@ const DEFAULT_CONVERSATIONS: Conversation[] = [
 - **"What are the most viral nature photography aesthetics?"**
 - **"Show me declining travel content styles to avoid."**
 
-All answers come directly from the TrendLens FAISS cluster database — 69,000+ real social media images, no LLM involved.`,
+All answers come directly from the TrendLens FAISS cluster database — 5,000 sampled images from the SMPD dataset, no LLM involved.`,
         timestamp: '10:15 AM'
       }
     ]
@@ -167,7 +167,12 @@ export const chatService = {
           id: `msg-${Date.now()}`,
           sender: 'assistant',
           content: data.answer || 'TrendLens could not find relevant clusters for this query.',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          inScope: data.inScope,
+          scopeReason: data.scopeReason ?? null,
+          scopeMethod: data.scopeMethod ?? null,
+          retrievedClusters: data.retrievedClusters || [],
+          supportingImages: data.supportingImages || []
         };
       }
     } catch (e) {
@@ -179,11 +184,13 @@ export const chatService = {
       id: `msg-${Date.now()}`,
       sender: 'assistant',
       content: [
-        '⚠️ **TrendLens server unreachable**',
+        '⚠️ **TrendLens backend unreachable**',
         '',
-        'Could not connect to the FAISS cluster database. Please make sure the backend server is running:',
+        'Could not connect to the TrendLens backend. The frontend only serves real pipeline data (no fabricated results).',
+        'Start both servers:',
         '```',
-        'cd frontend && npx tsx server.ts',
+        'cd trendlens && source venv/bin/activate && python -m src.api   # Python backend :8000',
+        'cd frontend && npx tsx server.ts                                 # React frontend :3000',
         '```',
         '',
         'TrendLens answers questions about **social media visual trends** only — photography styles, engagement patterns, and content strategy. It does not answer general-purpose questions.',
@@ -233,9 +240,17 @@ export const chatService = {
   },
 
   /**
-   * Analyze image placeholder for visual trend detection
+   * Analyze image placeholder — NO visual analysis model is implemented.
+   * Returns an honest message instead of fabricating CLIP/BLIP results.
    */
   async analyzeImage(file: File): Promise<string> {
-    return `Detected visual aesthetics for ${file.name}: Warm neutral color palette (#8A6A4A, #F8F5F0, #C7D2C1), high organic texture density, calm natural lighting. Matches emerging 'Organic Modernism' cluster with 94% confidence.`;
+    return [
+      '⚠️ **Image analysis is not implemented in this build.**',
+      '',
+      `Received \`${file.name}\` but TrendLens has no image-understanding model wired to the chat frontend.`,
+      'The backend pipeline can caption cluster representatives, but single-image analysis is NOT EVALUATED.',
+      '',
+      'You can still ask text questions about **social media visual trends** (e.g. "dog photography style").',
+    ].join('\n');
   }
 };
